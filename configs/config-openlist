@@ -1,0 +1,4 @@
+# OpenList
+CONFIG_PACKAGE_luci-app-openlist2=y
+CONFIG_PACKAGE_luci-i18n-openlist-zh-cn=y
+CONFIG_PACKAGE_openlist=y

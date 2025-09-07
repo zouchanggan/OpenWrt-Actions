@@ -1,0 +1,4 @@
+# MosDNS luci-app-mosdns
+CONFIG_PACKAGE_luci-app-mosdns=y
+CONFIG_PACKAGE_luci-i18n-mosdns-zh-cn=y
+CONFIG_PACKAGE_mosdns=y
