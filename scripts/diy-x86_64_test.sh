@@ -74,9 +74,29 @@ log_end
 log "核心补丁: BBR, LRNG, 防火墙, NFT, LuCI, igc"
 # BBR
 pushd target/linux/generic/backport-$KVER
-for i in $(seq -w 1 18); do
-    patch_url="$MIRROR/doc/patch/kernel-$KVER/bbr3/010-00${i}-*.patch"
-    download "$patch_url" "$(basename $patch_url)"
+bbr3_patches=(
+    "010-0001-net-tcp_bbr-broaden-app-limited-rate-sample-detectio.patch"
+    "010-0002-net-tcp_bbr-v2-shrink-delivered_mstamp-first_tx_msta.patch"
+    "010-0003-net-tcp_bbr-v2-snapshot-packets-in-flight-at-transmi.patch"
+    "010-0004-net-tcp_bbr-v2-count-packets-lost-over-TCP-rate-samp.patch"
+    "010-0005-net-tcp_bbr-v2-export-FLAG_ECE-in-rate_sample.is_ece.patch"
+    "010-0006-net-tcp_bbr-v2-introduce-ca_ops-skb_marked_lost-CC-m.patch"
+    "010-0007-net-tcp_bbr-v2-adjust-skb-tx.in_flight-upon-merge-in.patch"
+    "010-0008-net-tcp_bbr-v2-adjust-skb-tx.in_flight-upon-split-in.patch"
+    "010-0009-net-tcp-add-new-ca-opts-flag-TCP_CONG_WANTS_CE_EVENT.patch"
+    "010-0010-net-tcp-re-generalize-TSO-sizing-in-TCP-CC-module-AP.patch"
+    "010-0011-net-tcp-add-fast_ack-mode-1-skip-rwin-check-in-tcp_f.patch"
+    "010-0012-net-tcp_bbr-v2-record-app-limited-status-of-TLP-repa.patch"
+    "010-0013-net-tcp_bbr-v2-inform-CC-module-of-losses-repaired-b.patch"
+    "010-0014-net-tcp_bbr-v2-introduce-is_acking_tlp_retrans_seq-i.patch"
+    "010-0015-tcp-introduce-per-route-feature-RTAX_FEATURE_ECN_LOW.patch"
+    "010-0016-net-tcp_bbr-v3-update-TCP-bbr-congestion-control-mod.patch"
+    "010-0017-net-tcp_bbr-v3-ensure-ECN-enabled-BBR-flows-set-ECT-.patch"
+    "010-0018-tcp-export-TCPI_OPT_ECN_LOW-in-tcp_info-tcpi_options.patch"
+)
+for patch_file in "${bbr3_patches[@]}"; do
+    patch_url="$MIRROR/doc/patch/kernel-$KVER/bbr3/${patch_file}"
+    download "$patch_url" "$patch_file"
 done
 popd
 # Kernel olddefconfig
