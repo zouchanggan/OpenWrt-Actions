@@ -50,7 +50,7 @@ env:
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
   FIRMWARE_TAG: X86_64
-  MIRROR: https://raw.githubusercontent.com/grandway2025/OpenWRT-Action/main
+  MIRROR: https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
   GITEA: git.kejizero.online/zhao
   GITHUB: github.com
 jobs:
@@ -69,10 +69,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: .
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev
       - name: Checkout OpenWrt source
         uses: actions/checkout@v4
         with:
@@ -80,6 +76,10 @@ jobs:
           ref: ${{ env.REPO_BRANCH }}
           path: openwrt
           fetch-depth: 1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev
       - name: Export repository meta
         id: meta
         run: |
@@ -166,8 +166,10 @@ jobs:
           # 生成最终 .config
           make defconfig
           # 输出环境变量给后续 job
-          echo "DEVICE_TARGET=$(grep ^CONFIG_TARGET_BOARD .config | cut -d'\"' -f2)"         >> $GITHUB_ENV
-          echo "DEVICE_SUBTARGET=$(grep ^CONFIG_TARGET_SUBTARGET .config | cut -d'\"' -f2)"   >> $GITHUB_ENV
+          DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-z0-9]+=y$" .config | head -n1 | sed 's/^CONFIG_TARGET_//;s/=y$//')
+          DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9]+=y$" .config | head -n1 | sed "s/^CONFIG_TARGET_${DEVICE_TARGET}_//;s/=y$//")
+          echo "DEVICE_TARGET=$DEVICE_TARGET"      >> $GITHUB_ENV
+          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
           echo "IP_ADDR=${LAN}"              >> $GITHUB_ENV
           echo "ROOT_PASSWORD=${ROOT_PASSWORD}"  >> $GITHUB_ENV
           # 获取 OpenWrt 上游最新 tag
