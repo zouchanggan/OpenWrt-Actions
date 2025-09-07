@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
+# ----------- Global Trap -----------
+trap 'err "脚本发生异常，退出($?)!"' ERR
 # ---------- 1️⃣ 全局变量 ----------
 : "${MIRROR:=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main}"
 : "${GITEA:=git.kejizero.online/zhao}"
-: "${GITEA:=}"  
 : "${GITHUB:=github.com}"
 : "${CLASH_KERNEL:=amd64}"
+: "${LAN:=192.168.1.1}"
+: "${ROOT_PASSWORD:=}"
+: "${ENABLE_DOCKER:=false}"
+: "${ENABLE_SSRP:=false}"
+: "${ENABLE_PASSWALL:=false}"
+: "${ENABLE_NIKKI:=false}"
+: "${ENABLE_OPENCLASH:=false}"
+: "${ENABLE_LUCKY:=false}"
+: "${ENABLE_OAF:=false}"
 KVER=6.6   # 如需升级内核，只改这里
 # ---------- 2️⃣ 日志 / 错误 ----------
-log()    { echo -e "\033[1;34m[INFO]  $*\033[0m"; echo "::group::$*"; }
-log_end(){ echo "::endgroup::"; }
-err()    { echo -e "\033[1;31m[ERROR] $*\033[0m" >&2; echo "::error::$*"; exit 1; }
+log()     { echo -e "\033[1;34m[INFO]  $*\033[0m"; echo "::group::$*"; }
+log_end() { echo "::endgroup::"; }
+err()     { echo -e "\033[1;31m[ERROR] $*\033[0m" >&2; echo "::error::$*"; exit ${2:-1}; }
 # ---------- 3️⃣ 通用函数 ----------
 download() {
   local url=$1 dst=$2
@@ -21,20 +31,22 @@ download() {
 }
 apply_patch() {
   local f=$1
-  if git apply "$f"; then rm -f "$f"; else err "apply patch failed: $f"; fi
+  if git apply "$f"; then
+    rm -f "$f"
+  else
+    err "apply patch failed: $f"
+  fi
 }
 clone_pkg() {
   local repo=$1 dst=$2 branch=$3
   if [[ -n $branch ]]; then
-    git clone --depth=1 -b "$branch" "$repo" "$dst" \
-      || err "clone $repo (branch $branch) failed"
+    git clone --depth=1 -b "$branch" "$repo" "$dst" || err "clone $repo (branch $branch) failed"
   else
-    git clone --depth=1 "$repo" "$dst" \
-      || err "clone $repo failed"
+    git clone --depth=1 "$repo" "$dst" || err "clone $repo failed"
   fi
 }
-# ----------- 编译优化和内核设置 -----------
-log "Compiler optimization & kernel vermagic"
+# ----------- 4️⃣ 编译优化和内核设置 -----------
+log "编译优化和内核vermagic补丁"
 sed -i "s/^EXTRA_OPTIMIZATION=.*/EXTRA_OPTIMIZATION=-O2 -march=x86-64-v2/" include/target.mk
 download "$MIRROR/doc/kernel-$KVER" "include/kernel-$KVER"
 download "$MIRROR/doc/patch/kernel-$KVER/kernel/0001-linux-module-video.patch" "package/0001-linux-module-video.patch"
@@ -42,24 +54,24 @@ apply_patch "package/0001-linux-module-video.patch"
 sed -i 's/^\(.\).*vermagic$/\1cp $(TOPDIR)\/.vermagic $(LINUX_DIR)\/.vermagic/' include/kernel-defaults.mk
 grep HASH "include/kernel-$KVER" | awk -F'HASH-' '{print $2}' | awk '{print $1}' | md5sum | awk '{print $1}' > .vermagic
 log_end
-# ----------- 合并各类功能配置 -----------
-log "Merge feature configs"
-[[ "$ENABLE_DOCKER"    == "true" ]] && download "$MIRROR/configs/config-docker" .config
-[[ "$ENABLE_SSRP"      == "true" ]] && download "$MIRROR/configs/config-ssrp"   .config
-[[ "$ENABLE_PASSWALL"  == "true" ]] && download "$MIRROR/configs/config-passwall" .config
-[[ "$ENABLE_NIKKI"     == "true" ]] && download "$MIRROR/configs/config-nikki" .config
-[[ "$ENABLE_OPENCLASH" == "true" ]] && download "$MIRROR/configs/config-openclash" .config
-[[ "$ENABLE_LUCKY"     == "true" ]] && download "$MIRROR/configs/config-lucky" .config
-[[ "$ENABLE_OAF"       == "true" ]] && download "$MIRROR/configs/config-oaf" .config
+# ---------- 5️⃣ 可选功能合并 ----------
+log "合并可选.config特性"
+[[ "$ENABLE_DOCKER"    == "true" && -f ../configs/config-docker    ]] && cat ../configs/config-docker   >> .config
+[[ "$ENABLE_SSRP"      == "true" && -f ../configs/config-ssrp      ]] && cat ../configs/config-ssrp     >> .config
+[[ "$ENABLE_PASSWALL"  == "true" && -f ../configs/config-passwall  ]] && cat ../configs/config-passwall >> .config
+[[ "$ENABLE_NIKKI"     == "true" && -f ../configs/config-nikki     ]] && cat ../configs/config-nikki    >> .config
+[[ "$ENABLE_OPENCLASH" == "true" && -f ../configs/config-openclash ]] && cat ../configs/config-openclash>> .config
+[[ "$ENABLE_LUCKY"     == "true" && -f ../configs/config-lucky     ]] && cat ../configs/config-lucky    >> .config
+[[ "$ENABLE_OAF"       == "true" && -f ../configs/config-oaf       ]] && cat ../configs/config-oaf      >> .config
 log_end
-# ----------- 清理 SNAPSHOT -----------
-log "Fix version string / snapshot tag"
+# ---------- 6️⃣ 清理 SNAPSHOT ----------
+log "清理版本SNAPSHOT及相关标签"
 sed -i 's/-SNAPSHOT//g' include/version.mk package/base-files/image-config.in
 sed -i '/CONFIG_BUILDBOT/d' include/feeds.mk
 sed -i 's/;)\s*\\/; \\/' include/feeds.mk
 log_end
-# ----------- 内核/BBR/LRNG/Firewall4/NFT补丁 ----------
-log "Kernel, BBR, LRNG, firewall4, nft, luci-firewall, shortcut等全部定制补丁"
+# ----------- 7️⃣ 各类补丁 ----------
+log "核心补丁: BBR, LRNG, 防火墙, NFT, LuCI, igc"
 # BBR
 pushd target/linux/generic/backport-$KVER
 for i in $(seq -w 1 18); do
@@ -88,7 +100,7 @@ for i in $(seq -w 1 27); do
     download "$patch_url" "$(basename $patch_url)"
 done
 popd
-# firewall4、fullcone、bcc、offload等
+# firewall4等相关包
 mkdir -p package/network/config/firewall4/patches
 download "$MIRROR/Customize/firewall4/Makefile" package/network/config/firewall4/Makefile
 sed -i 's|$(PROJECT_GIT)/project|https://github.com/openwrt|g' package/network/config/firewall4/Makefile
@@ -102,7 +114,7 @@ mkdir -p package/libs/libnftnl/patches
 for patch in 0001-libnftnl-add-fullcone-expression-support 0002-libnftnl-add-brcm-fullcone-support; do
     download "$MIRROR/doc/patch/firewall4/libnftnl/$patch.patch" "package/libs/libnftnl/patches/$patch.patch"
 done
-# misc kernel
+# misc kernel patches
 for patch in \
     btf/990-btf-silence-btf-module-warning-messages \
     arm64/312-arm64-cpuinfo-Add-model-name-in-proc-cpuinfo-for-64bit-ta \
@@ -150,7 +162,7 @@ popd
 # igc-fix
 download "$MIRROR/doc/patch/kernel-$KVER/igc-fix/996-intel-igc-i225-i226-disable-eee.patch" "target/linux/x86/patches-$KVER/996-intel-igc-i225-i226-disable-eee.patch"
 log_end
-# ----------- 多媒体/路由器服务组件调整 -----------
+# ----------- 8️⃣ 服务组件调整 -----------
 log "Docker/TTYD/UPnP/profile/bash/rootfs/NTP/作者/KEY"
 # Docker
 rm -rf feeds/luci/applications/luci-app-dockerman
@@ -199,9 +211,9 @@ sed -i "s|^OPENWRT_RELEASE=\".*\"|OPENWRT_RELEASE=\"OpenWrt定制版 @R$(date +%
 sed -i "/BUILD_DATE/d" package/base-files/files/usr/lib/os-release
 sed -i "/BUILD_ID/aBUILD_DATE=\"$(date +%Y-%m-%d)\"" package/base-files/files/usr/lib/os-release
 log_end
-# ----------- 其它服务应用（ddns、frpc、natmap、luci及主题、samba等） ----------
-log "Network, storage, and applications (ddns, frp, natmap, samba, argon, unzip, openlist, etc)"
-# DDNS
+# ----------- 9️⃣ 扩展包&主题优化 -----------
+log "网络/存储/扩展包等(ddns,frp,natmap,samba,argn,unzip,openlist等)"
+# DDNS脚本修正
 sed -i '/boot()/,+2d' feeds/packages/net/ddns-scripts/files/etc/init.d/ddns
 # frpc
 sed -i 's/procd_set_param stdout $stdout/procd_set_param stdout 0/g' feeds/packages/net/frp/files/frpc.init
@@ -255,31 +267,32 @@ clone_pkg "https://${GITHUB}/sbwml/packages_lang_golang" "feeds/packages/lang/go
 clone_pkg "https://${GITHUB}/sbwml/luci-app-webdav" "package/new/luci-app-webdav" ""
 clone_pkg "https://${GITHUB}/sbwml/luci-app-quickfile" "package/new/quickfile" ""
 log_end
-# ----------- 默认IP/密码/root权限优化等 -----------
-log "LAN IP & root password"
+# ----------- 🔟 默认IP/密码/root优化等 -----------
+log "LAN IP & root密码"
 sed -i "s/192.168.1.1/${LAN}/" package/base-files/files/bin/config_generate
 if [[ -n "${ROOT_PASSWORD}" ]]; then
   pass_hash=$(openssl passwd -5 "${ROOT_PASSWORD}")
   sed -i "s|^root:[^:]*:|root:${pass_hash}:|" package/base-files/files/etc/shadow
 fi
 log_end
-# ----------- OAF eBPF选项 ----------
+# ----------- 1️⃣1️⃣ OAF eBPF选项 (可选) ----------
 if [[ "$ENABLE_OAF" == "true" ]]; then
-  log "Enable BPF SYSCALL for OpenAppFilter"
+  log "OAF: 打开BPF_SYSCALL"
   sed -i 's/# CONFIG_BPF_SYSCALL is not set/CONFIG_BPF_SYSCALL=y/' .config
   log_end
 fi
-# ----------- Rust补丁 -----------
-log "Patch Rust to skip llvm download"
+# ----------- 1️⃣2️⃣ Rust补丁 -----------
+log "Rust跳过llvm下载"
 sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
 log_end
-# ----------- 构建最终 .config ----------
-log "Run make defconfig"
+# ----------- 1️⃣3️⃣ 构建最终.config ----------
+log "执行 make defconfig"
 make defconfig
 log_end
+# ----------- 1️⃣4️⃣ 流水线环境导出变量 -----------
 DEVICE_TARGET=$(grep ^CONFIG_TARGET_BOARD .config | cut -d'"' -f2)
 DEVICE_SUBTARGET=$(grep ^CONFIG_TARGET_SUBTARGET .config | cut -d'"' -f2)
-cat <<EOF >> "$GITHUB_ENV"
+cat <<EOF >> "${GITHUB_ENV:-.env}"
 DEVICE_TARGET=$DEVICE_TARGET
 DEVICE_SUBTARGET=$DEVICE_SUBTARGET
 EOF
