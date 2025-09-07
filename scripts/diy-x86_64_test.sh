@@ -5,7 +5,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 # ---------- 1️⃣ 全局变量 ----------
-: "${MIRROR:=https://raw.githubusercontent.com/grandway2025/OpenWRT-Action/main}"
+: "${MIRROR:=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main}"
 : "${GITEA:=git.kejizero.online/zhao}"
 : "${GITEA:=}"  
 : "${GITHUB:=github.com}"
