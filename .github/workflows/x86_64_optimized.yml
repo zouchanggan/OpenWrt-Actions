@@ -80,6 +80,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev
+      
       - name: Export repository meta
         id: meta
         run: |
@@ -121,7 +122,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}
-          max-size: 10G 
+          max-size: 10G
       - name: Install LLVM
         uses: sbwml/actions@install-llvm
       - name: Install Feeds
@@ -131,6 +132,12 @@ jobs:
             https://raw.githubusercontent.com/grandway2025/Actions-OpenWrt/main/Customize/feeds/feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+      # 【关键优化】提前 make defconfig 和 make target/linux/prepare
+      - name: Prepare kernel and target
+        run: |
+          cd $OPENWRT_PATH
+          make defconfig
+          make target/linux/prepare V=s
       - name: Load Custom Configuration
         env:
           ENABLE_DOCKER:     ${{ github.event.inputs.docker }}
@@ -144,11 +151,8 @@ jobs:
           ROOT_PASSWORD:     ${{ github.event.inputs.root_password }}
         run: |
           echo "::group::Load custom configuration"
-          # 切换到 openwrt 源码目录
           cd $OPENWRT_PATH
-          # 复制主仓库 configs 到源码目录
           cp $GITHUB_WORKSPACE/${CONFIG_FILE} .config
-          # 按需追加功能组件 config（源文件都在主仓库 configs/）
           [[ "${ENABLE_DOCKER}"     == "true" && -f $GITHUB_WORKSPACE/configs/config-docker    ]] && cat $GITHUB_WORKSPACE/configs/config-docker    >> .config
           [[ "${ENABLE_SSRP}"       == "true" && -f $GITHUB_WORKSPACE/configs/config-ssrp      ]] && cat $GITHUB_WORKSPACE/configs/config-ssrp      >> .config
           [[ "${ENABLE_PASSWALL}"   == "true" && -f $GITHUB_WORKSPACE/configs/config-passwall  ]] && cat $GITHUB_WORKSPACE/configs/config-passwall  >> .config
@@ -156,23 +160,17 @@ jobs:
           [[ "${ENABLE_OPENCLASH}"  == "true" && -f $GITHUB_WORKSPACE/configs/config-openclash ]] && cat $GITHUB_WORKSPACE/configs/config-openclash >> .config
           [[ "${ENABLE_LUCKY}"      == "true" && -f $GITHUB_WORKSPACE/configs/config-lucky     ]] && cat $GITHUB_WORKSPACE/configs/config-lucky     >> .config
           [[ "${ENABLE_OAF}"        == "true" && -f $GITHUB_WORKSPACE/configs/config-oaf       ]] && cat $GITHUB_WORKSPACE/configs/config-oaf       >> .config
-          # 设置主仓库下所有自定义脚本可执行权限
           chmod +x $GITHUB_WORKSPACE/scripts/*.sh
-          # 执行自定义 DIY 脚本（绝对路径调度，变量名也兼容）
           $GITHUB_WORKSPACE/${DIY_SCRIPT}
-          # 按需执行额外脚本（如 mihimo core/adguard core）
           $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
           $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL
-          # 生成最终 .config
           make defconfig
-          # 输出环境变量给后续 job
           DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-z0-9]+=y$" .config | head -n1 | sed 's/^CONFIG_TARGET_//;s/=y$//')
           DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9]+=y$" .config | head -n1 | sed "s/^CONFIG_TARGET_${DEVICE_TARGET}_//;s/=y$//")
           echo "DEVICE_TARGET=$DEVICE_TARGET"      >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
           echo "IP_ADDR=${LAN}"              >> $GITHUB_ENV
           echo "ROOT_PASSWORD=${ROOT_PASSWORD}"  >> $GITHUB_ENV
-          # 获取 OpenWrt 上游最新 tag
           latest_release=$(curl -fsSL "https://api.github.com/repos/${SOURCE_REPO}/releases/latest" | jq -r .tag_name | sed 's/^v//')
           echo "latest_release=$latest_release" >> $GITHUB_ENV
           echo "::endgroup::"
@@ -220,21 +218,18 @@ jobs:
           rm -rf packages feeds.buildinfo version.buildinfo kernel
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
           echo "::endgroup::"
-      # 可选上传 bin 目录
       - name: Upload Bin Directory (optional)
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
           path: ${{ env.OPENWRT_PATH }}/bin
-      # 上传 firmware 到 Artifact（不发布到 Release 时用）
       - name: Upload Firmware to Artifact (when not releasing)
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE_PATH }}
-      # 上传到github Release
       - name: Upload Firmware to Release
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
         uses: ncipollo/release-action@v1.14.0
