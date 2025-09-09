@@ -168,7 +168,6 @@ git clone https://$github/zhiern/shortcut-fe package/new/shortcut-fe --depth=1
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
 git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
-git clone https://$github/sbwml/v2ray-geodata package/new/v2ray-geodata --depth=1
 
 # Caddy Web Server 支持
 git clone https://$gitea/luci-app-caddy package/new/caddy --depth=1
