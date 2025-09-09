@@ -228,8 +228,8 @@ git clone https://$gitea/luci-app-adguardhome package/new/luci-app-adguardhome -
 git clone https://github.com/sirpdboy/luci-app-taskplan package/new/luci-app-taskplan --depth=1
 
 # Dockerman 容器管理（适配新版 feeds/luci/applications 目录）
-git clone https://github.com/sirpdboy/luci-app-dockerman.git package/new/dockerman --depth=1
-mv -n package/new/dockerman/luci-app-dockerman feeds/luci/applications && rm -rf package/new/dockerman
+rm -rf feeds/luci/applications/luci-app-dockerman
+git clone https://github.com/sirpdboy/luci-app-dockerman.git feeds/luci/applications/luci-app-dockerman --depth=1
 rm -rf feeds/packages/utils/{docker,dockerd,containerd,runc}
 git clone https://$github/sbwml/packages_utils_docker feeds/packages/utils/docker
 git clone https://$github/sbwml/packages_utils_dockerd feeds/packages/utils/dockerd
