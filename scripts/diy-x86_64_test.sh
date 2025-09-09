@@ -190,6 +190,7 @@ git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 
 git clone https://$github/sbwml/luci-app-openlist2 package/new/openlist --depth=1
 
 # unzip 工具（解压支持）
+rm -rf feeds/packages/utils/unzip
 git clone https://$github/sbwml/feeds_packages_utils_unzip feeds/packages/utils/unzip
 
 # ARM 性能监控自定义
@@ -218,6 +219,11 @@ git clone https://github.com/sirpdboy/luci-app-taskplan package/new/luci-app-tas
 # Dockerman 容器管理（适配新版 feeds/luci/applications 目录）
 git clone https://github.com/sirpdboy/luci-app-dockerman.git package/new/dockerman --depth=1
 mv -n package/new/dockerman/luci-app-dockerman feeds/luci/applications && rm -rf package/new/dockerman
+rm -rf feeds/packages/utils/{docker,dockerd,containerd,runc}
+git clone https://$github/sbwml/packages_utils_docker feeds/packages/utils/docker
+git clone https://$github/sbwml/packages_utils_dockerd feeds/packages/utils/dockerd
+git clone https://$github/sbwml/packages_utils_containerd feeds/packages/utils/containerd
+git clone https://$github/sbwml/packages_utils_runc feeds/packages/utils/runc
 
 # 默认基础设置（By grandway2025）
 git clone https://$github/grandway2025/default-settings package/new/default-settings -b openwrt-24.10 --depth=1
