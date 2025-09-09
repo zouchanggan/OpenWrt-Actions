@@ -154,6 +154,11 @@ rm -rf feeds/packages/net/{v2ray-geodata,open-app-filter,shadowsocksr-libev,shad
 rm -rf feeds/packages/net/{tcping,trojan,trojan-plus,tuic-client,v2ray-core,v2ray-plugin,xray-core,xray-plugin,sing-box}
 rm -rf feeds/packages/net/{chinadns-ng,hysteria,mosdns,lucky,ddns-go,v2dat,golang}
 
+# 删除软件包
+rm -rf feeds/luci/applications/{luci-app-daed,luci-app-dae,luci-app-homeproxy,luci-app-openclash}
+rm -rf feeds/luci/applications/{luci-app-passwall,luci-app-passwall2,luci-app-ssr-plus,luci-app-vssr}
+rm -rf feeds/luci/applications/{luci-app-appfilter,luci-app-ddns-go,luci-app-lucky,luci-app-mosdns,luci-app-alist,luci-app-openlist,luci-app-airwhu}
+
 # NFT FullCone NAT 支持
 git clone https://$gitea/nft-fullcone package/new/nft-fullcone --depth=1
 
@@ -165,9 +170,6 @@ git clone https://$gitea/package_new_natflow package/new/natflow --depth=1
 
 # Shortcut-fe 网络硬件加速
 git clone https://$github/zhiern/shortcut-fe package/new/shortcut-fe --depth=1
-
-# MOSDNS v5 DNS高性能服务器与广告过滤
-git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
 
 # Caddy Web Server 支持
 git clone https://$gitea/luci-app-caddy package/new/caddy --depth=1
@@ -190,6 +192,10 @@ git clone https://$github/sbwml/luci-app-quickfile package/new/quickfile --depth
 
 # SSR/Passwall(Helloworld) 插件聚合
 git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 --depth=1
+
+# MOSDNS v5 DNS高性能服务器与广告过滤
+git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
+mv -n mosdns/{luci-app-mosdns,mosdns,v2dat} ./helloworld && rm -rf mosdns
 
 # OpenList2 订阅与批量代理规则管理
 git clone https://$github/sbwml/luci-app-openlist2 package/new/openlist --depth=1
