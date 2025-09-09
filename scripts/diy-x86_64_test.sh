@@ -153,6 +153,7 @@ curl -s $mirror/doc/patch/kernel-6.6/igc-fix/996-intel-igc-i225-i226-disable-eee
 rm -rf feeds/packages/net/{v2ray-geodata,open-app-filter,shadowsocksr-libev,shadowsocks-rust,shadowsocks-libev}
 rm -rf feeds/packages/net/{tcping,trojan,trojan-plus,tuic-client,v2ray-core,v2ray-plugin,xray-core,xray-plugin,sing-box}
 rm -rf feeds/packages/net/{chinadns-ng,hysteria,mosdns,lucky,ddns-go,v2dat,golang}
+rm -rf feeds/packages/utils/v2dat
 
 # 删除软件包
 rm -rf feeds/luci/applications/{luci-app-daed,luci-app-dae,luci-app-homeproxy,luci-app-openclash}
@@ -191,7 +192,9 @@ git clone https://$github/sbwml/luci-app-webdav package/new/luci-app-webdav --de
 git clone https://$github/sbwml/luci-app-quickfile package/new/quickfile --depth=1
 
 # SSR/Passwall(Helloworld) 插件聚合
-git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 --depth=1
+# git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 --depth=1
+git clone https://$github/kenzok8/small package/small -b v5 --depth=1
+rm -rf package/small/{luci-app-bypass,luci-app-fchomo,luci-app-momo,momo}
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
 # git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
