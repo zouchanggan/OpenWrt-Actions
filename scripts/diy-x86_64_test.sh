@@ -193,7 +193,7 @@ git clone https://$github/sbwml/luci-app-quickfile package/new/quickfile --depth
 
 # SSR/Passwall(Helloworld) 插件聚合
 # git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 --depth=1
-git clone https://$github/kenzok8/small package/small -b v5 --depth=1
+git clone https://$github/kenzok8/small package/small --depth=1
 rm -rf package/small/{luci-app-bypass,luci-app-fchomo,luci-app-momo,momo}
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
