@@ -149,6 +149,11 @@ curl -s $mirror/doc/patch/kernel-6.6/net/953-net-patch-linux-kernel-to-support-s
 curl -s $mirror/doc/patch/kernel-6.6/igc-fix/996-intel-igc-i225-i226-disable-eee.patch > target/linux/x86/patches-6.6/996-intel-igc-i225-i226-disable-eee.patch
 # =========================== 13. clone/更新自定义第三方包 ===========================
 
+# 删除软件依赖
+rm -rf feeds/packages/net/{v2ray-geodata,open-app-filter,shadowsocksr-libev,shadowsocks-rust,shadowsocks-libev}
+rm -rf feeds/packages/net/{tcping,trojan,trojan-plus,tuic-client,v2ray-core,v2ray-plugin,xray-core,xray-plugin,sing-box}
+rm -rf feeds/packages/net/{chinadns-ng,hysteria,mosdns,lucky,ddns-go,v2dat,golang}
+
 # NFT FullCone NAT 支持
 git clone https://$gitea/nft-fullcone package/new/nft-fullcone --depth=1
 
@@ -163,6 +168,7 @@ git clone https://$github/zhiern/shortcut-fe package/new/shortcut-fe --depth=1
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
 git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
+git clone https://$github/sbwml/v2ray-geodata package/new/v2ray-geodata --depth=1
 
 # Caddy Web Server 支持
 git clone https://$gitea/luci-app-caddy package/new/caddy --depth=1
