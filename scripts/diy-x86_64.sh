@@ -4,7 +4,7 @@
 # 配置参数
 # =====================
 # 脚本URL
-export mirror=http://127.0.0.1:8080
+export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
 # 私有Gitea
 export gitea=git.kejizero.online/zhao
@@ -16,7 +16,7 @@ export github="github.com"
 # CURL_BAR="--progress-bar"
 
 # 使用 O2 级别的优化
-sed -i 's/Os/O2/g' include/target.mk
+# sed -i 's/Os/O2/g' include/target.mk
 
 # 内核版本设置
 curl -s $mirror/doc/kernel-6.6 > include/kernel-6.6
@@ -449,7 +449,7 @@ git clone https://github.com/grandway2025/argon package/new/luci-theme-argon --d
 
 # 主题设置
 # sed -i 's|<a class="luci-link" href="https://github.com/openwrt/luci" target="_blank">Powered by {{ version.luciname }} ({{ version.luciversion }})</a>|<a class="luci-link" href="https://github.com/grandway2025" target="_blank">OpenWrt定制版</a>|g' package/new/luci-theme-argon/ucode/template/themes/argon/footer.ut
-$ sed -i 's|<a class="luci-link" href="https://github.com/openwrt/luci" target="_blank">Powered by {{ version.luciname }} ({{ version.luciversion }})</a>|<a class="luci-link" href="https://github.com/grandway2025" target="_blank">OpenWrt定制版</a>|g' package/new/luci-theme-argon/ucode/template/themes/argon/footer_login.ut
+# sed -i 's|<a class="luci-link" href="https://github.com/openwrt/luci" target="_blank">Powered by {{ version.luciname }} ({{ version.luciversion }})</a>|<a class="luci-link" href="https://github.com/grandway2025" target="_blank">OpenWrt定制版</a>|g' package/new/luci-theme-argon/ucode/template/themes/argon/footer_login.ut
 
 # luci-app-kucat-config
 # git clone https://$github/sirpdboy/luci-app-kucat-config.git package/new/luci-app-kucat-config --depth=1
