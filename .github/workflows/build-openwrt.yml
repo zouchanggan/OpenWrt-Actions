@@ -58,6 +58,9 @@ jobs:
       - name: Setup environment
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
+          # 【重要修正】在写入配置前，先创建 ccache 配置目录
+          mkdir -p $HOME/.ccache
+          # 现在可以安全地写入配置文件
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
       - name: Free disk space
         uses: sbwml/actions@free-disk
@@ -82,7 +85,7 @@ jobs:
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
           
-          # 【修正】将 Commit 信息格式化并写入 GITHUB_ENV
+          # 将 Commit 信息格式化并写入 GITHUB_ENV
           echo "COMMIT_AUTHOR=$(git show -s --format='作者: %an')" >> $GITHUB_ENV
           echo "COMMIT_DATE=$(git show -s --format='时间: %ci')" >> $GITHUB_ENV
           echo "COMMIT_MESSAGE=$(git show -s --format='内容: %s')" >> $GITHUB_ENV
@@ -110,8 +113,12 @@ jobs:
       - name: Install Feeds
         run: |
           cd ${{ env.OPENWRT_PATH }}
-          # feeds.conf.default 文件应该在你的主仓库中
-          cp ${{ github.workspace }}/main-repo/feeds.conf.default .
+          # 假设 feeds.conf.default 文件在你的主仓库的根目录
+          if [ -f "${{ github.workspace }}/main-repo/feeds.conf.default" ]; then
+            cp ${{ github.workspace }}/main-repo/feeds.conf.default .
+          else
+            echo "::warning::feeds.conf.default not found in main-repo. Using default OpenWrt feeds."
+          fi
           ./scripts/feeds update -a
           ./scripts/feeds install -a
       - name: Load Custom Configuration & DIY Script
@@ -128,11 +135,10 @@ jobs:
         run: |
           cd ${{ env.OPENWRT_PATH }}
           
-          # 【补充】按需追加配置
           cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
-          [[ "$ENABLE_DOCKER"    == "true" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
+          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
+          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
+          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
           # ... 其他插件的 cat 命令 ...
           chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
@@ -140,9 +146,11 @@ jobs:
           # ... 其他脚本，如 preset-mihimo-core.sh ...
           make defconfig
           
-          # 【补充】提取最终环境变量
-          echo "DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-z0-9_]+_DEVICE_[a-zA-Z0-9_]+=y$" .config | sed -r 's/CONFIG_TARGET_(.*)_DEVICE_(.*)=y/\1/')" >> $GITHUB_ENV
-          echo "DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_[a-z0-9_]+_DEVICE_[a-zA-Z0-9_]+=y$" .config | sed -r 's/CONFIG_TARGET_(.*)_DEVICE_(.*)=y/\2/')" >> $GITHUB_ENV
+          # 提取最终环境变量
+          DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
+          DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/")
+          echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
           echo "IP_ADDR=${{ env.LAN }}" >> $GITHUB_ENV
       - name: Download packages
         run: |
@@ -156,7 +164,7 @@ jobs:
           make -j$(nproc) || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-          echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
+          echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
       - name: Check space usage
         if: always()
         run: df -hT
@@ -164,7 +172,7 @@ jobs:
         if: steps.compile.outputs.status == 'success'
         run: |
           cd ${{ env.OPENWRT_PATH }}/bin/targets/*/*
-          rm -f sha256sums packages
+          rm -f sha256sums packages*
           cp ${{ env.OPENWRT_PATH }}/.config build.config
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
       - name: Upload Bin Directory (optional)
@@ -191,7 +199,7 @@ jobs:
           body: |
             **This is OpenWrt Firmware built by GitHub Actions**
             ### 📒 Firmware Information
-            - 💻 **Architecture:** ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+            - 💻 **Architecture:** `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}`
             - 🌐 **Default IP:** `${{ env.IP_ADDR }}`
             - 🔑 **Default Password:** `${{ github.event.inputs.root_password }}`
             - 🚀 **Kernel Version:** `${{ env.KERNEL }}`
