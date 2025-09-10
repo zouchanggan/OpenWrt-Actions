@@ -62,8 +62,14 @@ jobs:
           mkdir -p $HOME/.ccache
           # 现在可以安全地写入配置文件
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
-      - name: Free disk space
-        uses: sbwml/actions@free-disk
+      - name: Maximize build space
+        uses: easimon/maximize-build-space-action@v10
+        with:
+          root-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
       - name: Checkout Action main repository
         uses: actions/checkout@v4
         with:
