@@ -176,7 +176,7 @@ jobs:
         run: |
           cd ${{ env.OPENWRT_PATH }}
           echo -e "Starting compile with $(nproc) threads"
-          make -j$(nproc) || make -j1 V=s
+          make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
           echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
