@@ -16,7 +16,7 @@ export github="github.com"
 # CURL_BAR="--progress-bar"
 
 # 使用 O2 级别的优化
-# sed -i 's/Os/O2/g' include/target.mk
+sed -i 's/Os/O2/g' include/target.mk
 
 # 内核版本设置
 curl -s $mirror/doc/kernel-6.6 > include/kernel-6.6
