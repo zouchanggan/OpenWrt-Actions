@@ -43,7 +43,7 @@ on:
 env:
   REPO_URL: openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  CACHE_VER: v2 # 如果你想强制刷新缓存，可以修改这个值
+  CACHE_VER: v3 # 如果你想强制刷新缓存，可以修改这个值
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
   CLASH_KERNEL: amd64
