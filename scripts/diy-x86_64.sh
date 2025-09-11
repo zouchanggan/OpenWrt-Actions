@@ -117,12 +117,6 @@ fi
 # fix_rust_compile_error &&S et Rust build arg llvm.download-ci-llvm to false.
 sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
 
-# 修改名称
-# sed -i 's/OpenWrt/ZeroWrt/' package/base-files/files/bin/config_generate
-
-# banner
-# curl -s $mirror/Customize/base-files/banner > package/base-files/files/etc/banner
-
 # make olddefconfig
 curl -sL $mirror/doc/patch/kernel-6.6/kernel/0003-include-kernel-defaults.mk.patch | patch -p1
 
@@ -436,12 +430,9 @@ git clone https://github.com/sirpdboy/luci-app-taskplan package/new/luci-app-tas
 sed -i 's/services/network/g' feeds/luci/applications/luci-app-nlbwmon/root/usr/share/luci/menu.d/luci-app-nlbwmon.json
 sed -i 's/services/network/g' feeds/luci/applications/luci-app-nlbwmon/htdocs/luci-static/resources/view/nlbw/config.js
 
-# mentohust
-# git clone https://$github/sbwml/luci-app-mentohust package/new/mentohust --depth=1
-
-# luci-app-filetransfer
-# rm -rf feeds/luci/applications/luci-app-filetransfer
-# git clone https://$github/grandway2025/luci-app-filetransfer.git package/new/luci-app-filetransfer --depth=1
+# unzip
+rm -rf feeds/packages/utils/unzip
+git clone https://$github/sbwml/feeds_packages_utils_unzip feeds/packages/utils/unzip
 
 # argon && argon-config
 rm -rf feeds/luci/themes/luci-theme-argon
