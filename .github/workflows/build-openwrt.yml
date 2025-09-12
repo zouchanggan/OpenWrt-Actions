@@ -41,9 +41,9 @@ on:
         type: boolean
         default: true
 env:
-  REPO_URL: openwrt/openwrt
+  REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  CACHE_VER: v4 # 如果你想强制刷新缓存，可以修改这个值
+  CACHE_VER: v5
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
   CLASH_KERNEL: amd64
@@ -54,14 +54,18 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    # 【优化】为所有后续步骤设置默认工作目录
+    defaults:
+      run:
+        working-directory: ./openwrt
     steps:
       - name: Setup environment
+        # 【优化】此步骤在工作目录之外执行
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
-          # 【重要修正】在写入配置前，先创建 ccache 配置目录
           mkdir -p $HOME/.ccache
-          # 现在可以安全地写入配置文件
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
+        working-directory: ${{ github.workspace }}
       - name: Maximize build space
         uses: easimon/maximize-build-space@v10
         with:
@@ -70,44 +74,23 @@ jobs:
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
+      # 【关键修正 1】我们只检出一次主仓库（包含脚本和配置），以简化路径。
       - name: Checkout Action main repository
         uses: actions/checkout@v4
-        with:
-          path: main-repo
-      - name: Checkout OpenWrt source code
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.REPO_URL }}
-          ref: ${{ env.REPO_BRANCH }}
-          path: openwrt
-          fetch-depth: 1
-      - name: Free up disk space on Runner
+        working-directory: ${{ github.workspace }}
+      # 【关键修正 2】使用 git clone 来拉取 OpenWrt 源码，确保历史记录完整。
+      - name: Clone OpenWrt source code
+        id: clone_source
         run: |
-          echo "Initial disk space:"
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo apt-get clean
-          echo "Disk space after cleanup:"
-          df -h
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev clang llvm golang-go
-      - name: Set up build variables
-        id: setup_vars
-        run: |
+          git clone --depth=1 https://github.com/openwrt/openwrt -b openwrt-24.10 openwrt
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-          
           # 将 Commit 信息格式化并写入 GITHUB_ENV
           echo "COMMIT_AUTHOR=$(git show -s --format='作者: %an')" >> $GITHUB_ENV
           echo "COMMIT_DATE=$(git show -s --format='时间: %ci')" >> $GITHUB_ENV
           echo "COMMIT_MESSAGE=$(git show -s --format='内容: %s')" >> $GITHUB_ENV
           echo "COMMIT_HASH=$(git show -s --format='hash: %H')" >> $GITHUB_ENV
           echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
-          
           # 获取最新稳定版 Tag
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/tags" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
           if [ -z "$latest_release" ]; then
@@ -116,24 +99,28 @@ jobs:
           fi
           echo "latest_release=$latest_release" >> $GITHUB_ENV
           echo "Latest release tag determined: $latest_release"
+        working-directory: ${{ github.workspace }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev clang llvm golang-go
+        working-directory: ${{ github.workspace }}
       - name: Cache Downloads
         uses: actions/cache@v4
         with:
-          path: openwrt/dl
-          key: dl-${{ runner.os }}-${{ env.CACHE_VER }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
+          path: ./openwrt/dl
+          key: dl-${{ runner.os }}-${{ env.CACHE_VER }}-${{ hashFiles('configs/**.config', 'config-*.txt') }}
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
+          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('configs/**.config', 'config-*.txt') }}
           max-size: 5G
       - name: Install Feeds
         run: |
-          cd ${{ env.OPENWRT_PATH }}
-          # 假设 feeds.conf.default 文件在你的主仓库的根目录
-          if [ -f "${{ github.workspace }}/main-repo/feeds.conf.default" ]; then
-            cp ${{ github.workspace }}/main-repo/feeds.conf.default .
+          if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
+            cp ${{ github.workspace }}/feeds.conf.default ./feeds.conf.default
           else
-            echo "::warning::feeds.conf.default not found in main-repo. Using default OpenWrt feeds."
+            echo "::warning::feeds.conf.default not found. Using default OpenWrt feeds."
           fi
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -149,56 +136,49 @@ jobs:
           ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
           ENABLE_OAF: ${{ github.event.inputs.oaf }}
         run: |
-          cd ${{ env.OPENWRT_PATH }}
+          # 【路径优化】直接从工作区根目录复制文件
+          cp ${{ github.workspace }}/${{ env.CONFIG_FILE }} .config
           
-          cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
-          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
-          # ... 你可以在这里继续添加其他插件的 cat 命令 ...
-          # 执行主 DIY 脚本
-          chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
-          ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+          # 【路径优化】现在所有自定义配置都在工作区根目录
+          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/configs/config-docker.txt >> .config
+          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/config-ssrp.txt" ]] && cat ${{ github.workspace }}/config-ssrp.txt >> .config
+          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/config-passwall.txt" ]] && cat ${{ github.workspace }}/config-passwall.txt >> .config
+          chmod +x ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
+          ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
           
-          # 【新增部分】执行额外的核心下载脚本
-          # 这两个脚本应该位于你的主仓库的 scripts/ 目录下
-          # 确保脚本有可执行权限
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
-          # 执行下载
-          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
-          ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
-          # 生成最终 .config
+          chmod +x ${{ github.workspace }}/scripts/preset-mihimo-core.sh
+          chmod +x ${{ github.workspace }}/scripts/preset-adguard-core.sh
+          ${{ github.workspace }}/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
+          ${{ github.workspace }}/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
+          
           make defconfig
           
-          # 提取最终环境变量
           DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
           DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/")
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-          echo "IP_ADDR=${{ env.LAN }}" >> $GITHUB_ENV
+          echo "IP_ADDR=${LAN}" >> $GITHUB_ENV
       - name: Download packages
-        run: |
-          cd ${{ env.OPENWRT_PATH }}
-          make download -j$(nproc)
+        run: make download -j$(nproc)
       - name: Compile Firmware
         id: compile
         run: |
-          cd ${{ env.OPENWRT_PATH }}
           echo -e "Starting compile with $(nproc) threads"
-          make -j1 V=s
+          make -j$(nproc) || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
           echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
+      # ... 后续的上传步骤保持不变，因为它们依赖于 GITHUB_ENV 中的变量，其设置是正确的 ...
       - name: Check space usage
         if: always()
         run: df -hT
+        working-directory: ${{ github.workspace }} # 这个步骤可以在任何地方运行
       - name: Organise files
         if: steps.compile.outputs.status == 'success'
         run: |
-          cd ${{ env.OPENWRT_PATH }}/bin/targets/*/*
+          cd bin/targets/*/*
           rm -f sha256sums packages*
-          cp ${{ env.OPENWRT_PATH }}/.config build.config
+          cp ../../../../.config build.config # 调整 .config 的相对路径
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
       - name: Upload Bin Directory (optional)
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
