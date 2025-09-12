@@ -67,11 +67,11 @@ jobs:
         with:
           root-reserve-mb: 512
           swap-size-mb: 1024
-          remove-dotnet: 'true'      # 清理 .NET SDK
-          remove-android: 'true'     # 清理 Android SDK 和 NDK
-          remove-haskell: 'true'     # 清理 Haskell 工具链
-          remove-codeql: 'true'      # 清理 CodeQL (非常占空间)
-          remove-docker-images: 'true' # 清理预装的 Docker 镜像 (非常占空间)
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
         
       - name: Checkout Action main repository
         uses: actions/checkout@v4
