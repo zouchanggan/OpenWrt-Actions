@@ -64,10 +64,12 @@ jobs:
 
       - name: Free disk space
         uses: sbwml/actions@free-disk
+        
       - name: Checkout Action main repository
         uses: actions/checkout@v4
         with:
           path: main-repo
+          
       - name: Checkout OpenWrt source code
         uses: actions/checkout@v4
         with:
@@ -81,6 +83,7 @@ jobs:
 
       - name: Install LLVM
         uses: sbwml/actions@install-llvm
+        
       - name: Set up build variables
         id: setup_vars
         run: |
@@ -100,6 +103,7 @@ jobs:
           fi
           echo "latest_release=$latest_release" >> $GITHUB_ENV
           echo "Latest release tag determined: $latest_release"
+          
       - name: Cache Downloads
         uses: actions/cache@v4
         with:
@@ -189,6 +193,7 @@ jobs:
         with:
           name: openwrt-bin-${{ env.FILE_DATE }}
           path: ${{ env.OPENWRT_PATH }}/bin
+          
       - name: Upload Firmware to Artifact
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
         uses: actions/upload-artifact@v4
