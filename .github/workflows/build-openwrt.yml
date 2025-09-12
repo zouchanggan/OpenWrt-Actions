@@ -52,7 +52,7 @@ env:
   FIRMWARE_TAG: X86_64
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     
     steps:
@@ -84,7 +84,8 @@ jobs:
       - name: Free disk space
         uses: sbwml/actions@free-disk
         with:
-          build-mount-path: /builder
+          root-reserve-gb: 4
+          swap-size-gb: 4
         
       - name: Checkout OpenWrt source code
         uses: actions/checkout@v4
