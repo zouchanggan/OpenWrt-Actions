@@ -41,9 +41,9 @@ on:
         type: boolean
         default: true
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_URL: openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  CACHE_VER: v5 # 建议修改缓存版本以避免潜在问题
+  CACHE_VER: v7 # 建议每次重大修改后递增此值以刷新缓存
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
   CLASH_KERNEL: amd64
@@ -54,73 +54,75 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    # 为所有 `run` 步骤设置默认工作目录为 `openwrt`
-    defaults:
-      run:
-        working-directory: ./openwrt
+    
     steps:
       - name: Setup environment
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
           mkdir -p $HOME/.ccache
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
-        # 覆盖默认值，在根目录执行此步骤
-        working-directory: ${{ github.workspace }}
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-      # 【语法修正】移除 checkout 步骤的 working-directory
-      # 此 action 默认就会将代码检出到工作区根目录
+
+      - name: Free disk space
+        uses: sbwml/actions@free-disk
       - name: Checkout Action main repository
         uses: actions/checkout@v4
-      - name: Clone OpenWrt source code
+        with:
+          path: main-repo
+      - name: Checkout OpenWrt source code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO_URL }}
+          ref: ${{ env.REPO_BRANCH }}
+          path: openwrt
+          fetch-depth: 1
+
+      - name: Build System Setup
+        uses: sbwml/actions@openwrt-build-setup
+
+      - name: Install LLVM
+        uses: sbwml/actions@install-llvm
+      - name: Set up build variables
+        id: setup_vars
         run: |
-          # 使用 git clone 拉取完整历史记录，解决编译依赖问题
-          git clone https://github.com/openwrt/openwrt -b openwrt-24.10 openwrt
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          
           echo "COMMIT_AUTHOR=$(git show -s --format='作者: %an')" >> $GITHUB_ENV
           echo "COMMIT_DATE=$(git show -s --format='时间: %ci')" >> $GITHUB_ENV
           echo "COMMIT_MESSAGE=$(git show -s --format='内容: %s')" >> $GITHUB_ENV
           echo "COMMIT_HASH=$(git show -s --format='hash: %H')" >> $GITHUB_ENV
           echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
+          
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/tags" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
           if [ -z "$latest_release" ]; then
             echo "::warning::Failed to fetch latest tag, using fallback."
             latest_release="24.10.x"
           fi
           echo "latest_release=$latest_release" >> $GITHUB_ENV
-        # 覆盖默认值，在根目录执行此步骤
-        working-directory: ${{ github.workspace }}
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev clang llvm golang-go
-        # 覆盖默认值，在根目录执行此步骤
-        working-directory: ${{ github.workspace }}
+          echo "Latest release tag determined: $latest_release"
       - name: Cache Downloads
         uses: actions/cache@v4
         with:
-          path: ./openwrt/dl
-          key: dl-${{ runner.os }}-${{ env.CACHE_VER }}-${{ hashFiles('configs/**.config', 'config-*.txt') }}
+          path: openwrt/dl
+          key: dl-${{ runner.os }}-${{ env.CACHE_VER }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
+      
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('configs/**.config', 'config-*.txt') }}
+          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
           max-size: 5G
-      # 从此步开始，所有 run 步骤都将默认在 ./openwrt 目录中执行
+          
       - name: Install Feeds
         run: |
-          if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
-            cp ${{ github.workspace }}/feeds.conf.default ./feeds.conf.default
+          cd ${{ env.OPENWRT_PATH }}
+          if [ -f "${{ github.workspace }}/main-repo/feeds.conf.default" ]; then
+            cp ${{ github.workspace }}/main-repo/feeds.conf.default .
+          else
+            echo "::warning::feeds.conf.default not found in main-repo. Using default OpenWrt feeds."
           fi
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
       - name: Load Custom Configuration & DIY Script
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
@@ -133,19 +135,19 @@ jobs:
           ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
           ENABLE_OAF: ${{ github.event.inputs.oaf }}
         run: |
-          cp ${{ github.workspace }}/${{ env.CONFIG_FILE }} .config
+          cd ${{ env.OPENWRT_PATH }}
           
-          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/config-ssrp.txt" ]] && cat ${{ github.workspace }}/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/config-passwall.txt" ]] && cat ${{ github.workspace }}/config-passwall.txt >> .config
-          chmod +x ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
-          ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
+          cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
+          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
+          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
+          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
+          chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+          ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           
-          chmod +x ${{ github.workspace }}/scripts/preset-mihimo-core.sh
-          chmod +x ${{ github.workspace }}/scripts/preset-adguard-core.sh
-          ${{ github.workspace }}/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
-          ${{ github.workspace }}/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
-          
+          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
+          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
+          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
+          ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
           make defconfig
           
           DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
@@ -153,29 +155,34 @@ jobs:
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
           echo "IP_ADDR=${LAN}" >> $GITHUB_ENV
+          
       - name: Download packages
-        run: make download -j$(nproc)
+        run: |
+          cd ${{ env.OPENWRT_PATH }}
+          make download -j$(nproc)
+          
       - name: Compile Firmware
         id: compile
         run: |
+          cd ${{ env.OPENWRT_PATH }}
           echo -e "Starting compile with $(nproc) threads"
-          make -j$(nproc) || make -j1 V=s
+          make -j$(nproc) || make -j1 || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
           echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
+     
       - name: Check space usage
         if: always()
         run: df -hT
-        working-directory: ${{ github.workspace }}
+        
       - name: Organise files
         if: steps.compile.outputs.status == 'success'
         run: |
-          cd bin/targets/*/*
+          cd ${{ env.OPENWRT_PATH }}/bin/targets/*/*
           rm -f sha256sums packages*
-          cp .config build.config
+          cp ${{ env.OPENWRT_PATH }}/.config build.config
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
-        # 覆盖默认值，因为此步骤有复杂的 cd 逻辑
-        working-directory: ${{ env.OPENWRT_PATH }}
+          
       - name: Upload Bin Directory (optional)
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         uses: actions/upload-artifact@v4
@@ -188,6 +195,7 @@ jobs:
         with:
           name: openwrt-firmware-${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE_PATH }}
+          
       - name: Upload Firmware to Release
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
         uses: ncipollo/release-action@v1.14.0
