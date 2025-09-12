@@ -61,23 +61,31 @@ jobs:
           sudo timedatectl set-timezone Asia/Shanghai
           mkdir -p $HOME/.ccache
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
-
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-        
+       
       - name: Checkout Action main repository
         uses: actions/checkout@v4
         with:
           path: main-repo
           
+      - name: Show system
+        run: |
+          echo -e "\n\e[1;32mCPU:\e[0m"
+          echo "$(grep 'model name' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}') ($(grep 'cpu MHz' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}')MHz) x $(grep processor /proc/cpuinfo  | wc -l)"
+          echo -e "\n\e[1;32mMemory:\e[0m"
+          free -h
+          echo -e "\n\e[1;32mStorage:\e[0m"
+          df -Th / /mnt
+          echo -e "\n\e[1;32mSystem:\e[0m"
+          lsb_release -a
+          echo -e "\n\e[1;32mKernel:\e[0m"
+          uname -a
+          echo
+          
+      - name: Free disk space
+        uses: sbwml/actions@free-disk
+        with:
+          build-mount-path: /builder
+        
       - name: Checkout OpenWrt source code
         uses: actions/checkout@v4
         with:
