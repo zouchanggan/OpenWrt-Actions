@@ -43,7 +43,7 @@ on:
 env:
   REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  CACHE_VER: v5
+  CACHE_VER: v5 # 建议修改缓存版本以避免潜在问题
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
   CLASH_KERNEL: amd64
@@ -54,17 +54,17 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    # 【优化】为所有后续步骤设置默认工作目录
+    # 为所有 `run` 步骤设置默认工作目录为 `openwrt`
     defaults:
       run:
         working-directory: ./openwrt
     steps:
       - name: Setup environment
-        # 【优化】此步骤在工作目录之外执行
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
           mkdir -p $HOME/.ccache
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
+        # 覆盖默认值，在根目录执行此步骤
         working-directory: ${{ github.workspace }}
       - name: Maximize build space
         uses: easimon/maximize-build-space@v10
@@ -74,36 +74,34 @@ jobs:
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
-      # 【关键修正 1】我们只检出一次主仓库（包含脚本和配置），以简化路径。
+      # 【语法修正】移除 checkout 步骤的 working-directory
+      # 此 action 默认就会将代码检出到工作区根目录
       - name: Checkout Action main repository
         uses: actions/checkout@v4
-        working-directory: ${{ github.workspace }}
-      # 【关键修正 2】使用 git clone 来拉取 OpenWrt 源码，确保历史记录完整。
       - name: Clone OpenWrt source code
-        id: clone_source
         run: |
-          git clone --depth=1 https://github.com/openwrt/openwrt -b openwrt-24.10 openwrt
+          # 使用 git clone 拉取完整历史记录，解决编译依赖问题
+          git clone https://github.com/openwrt/openwrt -b openwrt-24.10 openwrt
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-          # 将 Commit 信息格式化并写入 GITHUB_ENV
           echo "COMMIT_AUTHOR=$(git show -s --format='作者: %an')" >> $GITHUB_ENV
           echo "COMMIT_DATE=$(git show -s --format='时间: %ci')" >> $GITHUB_ENV
           echo "COMMIT_MESSAGE=$(git show -s --format='内容: %s')" >> $GITHUB_ENV
           echo "COMMIT_HASH=$(git show -s --format='hash: %H')" >> $GITHUB_ENV
           echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
-          # 获取最新稳定版 Tag
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/tags" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
           if [ -z "$latest_release" ]; then
             echo "::warning::Failed to fetch latest tag, using fallback."
             latest_release="24.10.x"
           fi
           echo "latest_release=$latest_release" >> $GITHUB_ENV
-          echo "Latest release tag determined: $latest_release"
+        # 覆盖默认值，在根目录执行此步骤
         working-directory: ${{ github.workspace }}
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev clang llvm golang-go
+        # 覆盖默认值，在根目录执行此步骤
         working-directory: ${{ github.workspace }}
       - name: Cache Downloads
         uses: actions/cache@v4
@@ -115,12 +113,11 @@ jobs:
         with:
           key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('configs/**.config', 'config-*.txt') }}
           max-size: 5G
+      # 从此步开始，所有 run 步骤都将默认在 ./openwrt 目录中执行
       - name: Install Feeds
         run: |
           if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
             cp ${{ github.workspace }}/feeds.conf.default ./feeds.conf.default
-          else
-            echo "::warning::feeds.conf.default not found. Using default OpenWrt feeds."
           fi
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -136,10 +133,8 @@ jobs:
           ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
           ENABLE_OAF: ${{ github.event.inputs.oaf }}
         run: |
-          # 【路径优化】直接从工作区根目录复制文件
           cp ${{ github.workspace }}/${{ env.CONFIG_FILE }} .config
           
-          # 【路径优化】现在所有自定义配置都在工作区根目录
           [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/configs/config-docker.txt >> .config
           [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/config-ssrp.txt" ]] && cat ${{ github.workspace }}/config-ssrp.txt >> .config
           [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/config-passwall.txt" ]] && cat ${{ github.workspace }}/config-passwall.txt >> .config
@@ -168,18 +163,19 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
           echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
-      # ... 后续的上传步骤保持不变，因为它们依赖于 GITHUB_ENV 中的变量，其设置是正确的 ...
       - name: Check space usage
         if: always()
         run: df -hT
-        working-directory: ${{ github.workspace }} # 这个步骤可以在任何地方运行
+        working-directory: ${{ github.workspace }}
       - name: Organise files
         if: steps.compile.outputs.status == 'success'
         run: |
           cd bin/targets/*/*
           rm -f sha256sums packages*
-          cp ../../../../.config build.config # 调整 .config 的相对路径
+          cp .config build.config
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        # 覆盖默认值，因为此步骤有复杂的 cd 逻辑
+        working-directory: ${{ env.OPENWRT_PATH }}
       - name: Upload Bin Directory (optional)
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         uses: actions/upload-artifact@v4
