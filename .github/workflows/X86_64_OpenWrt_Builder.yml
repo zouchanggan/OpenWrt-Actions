@@ -35,14 +35,6 @@ on:
         description: "⚡ OpenClash"
         type: boolean
         default: true
-      lucky:
-        description: "🍀 Lucky"
-        type: boolean
-        default: true
-      oaf:
-        description: "🔍 OpenAppFilter"
-        type: boolean
-        default: true
       skip_failed_packages:
         description: "⚠️ 跳过失败的包继续编译"
         type: boolean
@@ -55,8 +47,6 @@ on:
         description: "💾 使用 CacheWRTBuild 加速"
         type: boolean
         default: true
-  schedule:
-    - cron: '0 2 * * 5'  # 每周五凌晨2点自动构建
   push:
     branches: [ main ]
     paths:
