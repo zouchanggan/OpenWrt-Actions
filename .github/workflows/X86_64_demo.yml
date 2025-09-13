@@ -133,10 +133,10 @@ jobs:
           echo "Latest release tag determined: $latest_release"
 
     - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
-          max-size: 5G
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
+        max-size: 5G
           
     - name: Install Feeds
       run: |
