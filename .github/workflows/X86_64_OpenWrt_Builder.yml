@@ -1,0 +1,530 @@
+name: 💻 X86_64 OpenWrt Builder
+# ============================================
+# 触发条件
+# ============================================
+on:
+  workflow_dispatch:
+    inputs:
+      lan_addr:
+        description: "📍 默认 LAN 地址"
+        default: "192.168.1.10"
+        required: true
+        type: string
+      root_password:
+        description: "🔑 Root 密码"
+        default: "password"
+        required: false
+        type: string
+      docker:
+        description: "🐋 Docker 支持"
+        type: boolean
+        default: true
+      ssrp:
+        description: "🚀 ShadowSocksR Plus+"
+        type: boolean
+        default: true
+      passwall:
+        description: "🌐 Passwall"
+        type: boolean
+        default: true
+      nikki:
+        description: "📦 Nikki"
+        type: boolean
+        default: true
+      openclash:
+        description: "⚡ OpenClash"
+        type: boolean
+        default: true
+      lucky:
+        description: "🍀 Lucky"
+        type: boolean
+        default: true
+      oaf:
+        description: "🔍 OpenAppFilter"
+        type: boolean
+        default: true
+      skip_failed_packages:
+        description: "⚠️ 跳过失败的包继续编译"
+        type: boolean
+        default: true
+      debug_mode:
+        description: "🐛 调试模式（详细日志）"
+        type: boolean
+        default: false
+      use_cachewrtbuild:
+        description: "💾 使用 CacheWRTBuild 加速"
+        type: boolean
+        default: true
+  schedule:
+    - cron: '0 2 * * 5'  # 每周五凌晨2点自动构建
+  push:
+    branches: [ main ]
+    paths:
+      - 'configs/x86_64.config'
+      - '.github/workflows/x86_64.yml'
+# ============================================
+# 全局环境变量
+# ============================================
+env:
+  # 源码配置
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-24.10
+  CONFIG_FILE: configs/x86_64.config
+  DIY_SCRIPT: scripts/diy-x86_64.sh
+  
+  # 编译配置
+  CLASH_KERNEL: amd64
+  CACHE_TOOLCHAIN: true
+  USE_CACHEWRTBUILD: true
+  UPLOAD_BIN_DIR: false
+  FIRMWARE_RELEASE: true
+  FIRMWARE_TAG: X86_64
+  
+  # 系统配置
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
+  
+  # 优化配置
+  CCACHE_DIR: /tmp/.ccache
+  CCACHE_MAXSIZE: 5G
+  
+# ============================================
+# 并发控制
+# ============================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+# ============================================
+# 主任务
+# ============================================
+jobs:
+  build:
+    name: 🏗️ Build OpenWrt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 720
+    
+    # 默认 shell 配置 - 任何错误立即退出
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    
+    # 输出定义
+    outputs:
+      status: ${{ steps.compile.outputs.status }}
+      firmware_path: ${{ steps.compile.outputs.firmware_path }}
+    
+    steps:
+      # ============================================
+      # 1. 基础环境准备
+      # ============================================
+      - name: ✅ Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 🔧 Initialize Environment Variables
+        id: env
+        run: |
+          # 基础时间变量
+          echo "BUILD_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "FILE_DATE=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+          echo "TAG_TIME=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+          
+          # 系统变量
+          echo "PROC_COUNT=$(nproc)" >> $GITHUB_ENV
+          echo "MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')" >> $GITHUB_ENV
+          echo "WORKSPACE=${{ github.workspace }}" >> $GITHUB_ENV
+          
+          # 构建标识
+          echo "RUN_NUMBER=${{ github.run_number }}" >> $GITHUB_ENV
+          echo "RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          
+          # 调试模式
+          if [[ "${{ github.event.inputs.debug_mode }}" == "true" ]]; then
+            echo "BUILD_LOG_LEVEL=V=s" >> $GITHUB_ENV
+          else  
+            echo "BUILD_LOG_LEVEL=" >> $GITHUB_ENV
+          fi
+          
+      - name: 📊 System Information
+        run: |
+          echo "========================================="
+          echo "📊 System Information"
+          echo "========================================="
+          echo "CPU Model: $(lscpu | grep 'Model name' | cut -d':' -f2 | xargs)"
+          echo "CPU Cores: $(nproc)"
+          echo "Memory: $(free -h | awk '/^Mem:/{print $2}')"
+          echo "Disk Space:"
+          df -h
+          echo "========================================="
+          
+      # ============================================
+      # 2. 磁盘空间和 Swap 优化
+      # ============================================
+      - name: 🧹 Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          
+      - name: 💾 Additional Space Optimization
+        run: |
+          # 删除不需要的工具
+          sudo apt-get remove -y --purge \
+            azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable \
+            firefox powershell mono-devel libgl1-mesa-dri xserver-xorg-core
+          
+          # 清理 apt 缓存
+          sudo apt-get autoremove -y --purge
+          sudo apt-get clean
+          
+          # 设置 swap 优化参数
+          sudo sysctl vm.swappiness=10
+          sudo sysctl vm.vfs_cache_pressure=50
+          
+          echo "磁盘空间优化后："
+          df -h
+          
+      # ============================================
+      # 3. 安装编译依赖
+      # ============================================
+      - name: 📦 Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler \
+            ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev \
+            gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+            libncurses5-dev libncursesw5 libncursesw5-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool lld llvm lrzsz mkisofs msmtp \
+            nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip \
+            python3-ply python3-docutils python3-pyelftools qemu-utils quilt \
+            re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            unzip vim wget xmlto xxd zlib1g-dev
+            
+      - name: ⚡ Setup Ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-x86_64-${{ env.REPO_BRANCH }}
+          max-size: 5G
+          
+      # ============================================
+      # 4. 克隆源码
+      # ============================================
+      - name: 📥 Clone OpenWrt Source
+        id: clone
+        run: |
+          # 使用 CacheWRTBuild 加速（如果启用）
+          if [[ "${{ github.event.inputs.use_cachewrtbuild }}" == "true" ]]; then
+            echo "使用 CacheWRTBuild 加速下载..."
+            bash <(curl -sS https://raw.githubusercontent.com/stupidloud/cachewrtbuild/main/scripts/apply_cache.sh)
+            export CACHE_REPO="https://github.com/stupidloud/cachewrtbuild"
+            git clone --depth=1 $CACHE_REPO/openwrt.git -b $REPO_BRANCH openwrt
+          else
+            git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+          fi
+          
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          
+          # 提取仓库名称
+          REPO_NAME=$(basename "$REPO_URL" .git)
+          echo "SOURCE_REPO=$REPO_NAME" >> $GITHUB_ENV
+          
+          # 保存提交信息
+          echo "COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')" >> $GITHUB_ENV
+          echo "COMMIT_DATE=$(git log -1 --pretty=format:'%ci')" >> $GITHUB_ENV  
+          echo "COMMIT_MESSAGE=$(git log -1 --pretty=format:'%s')" >> $GITHUB_ENV
+          echo "COMMIT_HASH=$(git log -1 --pretty=format:'%H')" >> $GITHUB_ENV
+          
+      # ============================================
+      # 5. 缓存管理（改进版）
+      # ============================================
+      - name: 💾 Cache Management
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.OPENWRT_PATH }}/staging_dir
+            ${{ env.OPENWRT_PATH }}/build_dir/host*
+            ${{ env.OPENWRT_PATH }}/build_dir/toolchain*
+            ${{ env.OPENWRT_PATH }}/dl
+            ${{ env.CCACHE_DIR }}
+          key: openwrt-${{ env.REPO_BRANCH }}-x86_64-${{ hashFiles('configs/x86_64.config') }}-${{ env.TAG_TIME }}
+          restore-keys: |
+            openwrt-${{ env.REPO_BRANCH }}-x86_64-${{ hashFiles('configs/x86_64.config') }}-
+            openwrt-${{ env.REPO_BRANCH }}-x86_64-
+            
+      # ============================================
+      # 6. Feeds 管理
+      # ============================================
+      - name: 📚 Update & Install Feeds
+        run: |
+          cd $OPENWRT_PATH
+          
+          # 复制自定义 feeds 配置（如果存在）
+          [ -f "$WORKSPACE/feeds.conf.default" ] && cp "$WORKSPACE/feeds.conf.default" .
+          
+          # 更新和安装 feeds
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+      # ============================================
+      # 7. 自定义配置
+      # ============================================
+      - name: ⚙️ Load Custom Configuration
+        id: config
+        run: |
+          cd $OPENWRT_PATH
+          
+          # 准备配置文件
+          [ -e "$WORKSPACE/files" ] && mv "$WORKSPACE/files" files
+          [ -e "$WORKSPACE/$CONFIG_FILE" ] && cp "$WORKSPACE/$CONFIG_FILE" .config
+          
+          # 执行自定义脚本
+          chmod +x $WORKSPACE/scripts/*.sh
+          
+          # 导出环境变量供脚本使用
+          export LAN="${{ github.event.inputs.lan_addr }}"
+          export ROOT_PASSWORD="${{ github.event.inputs.root_password }}"
+          export ENABLE_DOCKER="${{ github.event.inputs.docker }}"
+          export ENABLE_SSRP="${{ github.event.inputs.ssrp }}"
+          export ENABLE_PASSWALL="${{ github.event.inputs.passwall }}"
+          export ENABLE_NIKKI="${{ github.event.inputs.nikki }}"
+          export ENABLE_OPENCLASH="${{ github.event.inputs.openclash }}"
+          export ENABLE_LUCKY="${{ github.event.inputs.lucky }}"
+          export ENABLE_OAF="${{ github.event.inputs.oaf }}"
+          
+          # 执行自定义配置脚本
+          $WORKSPACE/$DIY_SCRIPT
+          $WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL || true
+          $WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL || true
+          
+          # 生成完整配置
+          make defconfig
+          
+          # 提取目标信息
+          TARGET=$(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)
+          SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET' .config | cut -d'"' -f2)
+          echo "DEVICE_TARGET=$TARGET" >> $GITHUB_ENV
+          echo "DEVICE_SUBTARGET=$SUBTARGET" >> $GITHUB_ENV
+          
+          # 网络配置
+          echo "IP_ADDR=${{ github.event.inputs.lan_addr }}" >> $GITHUB_ENV
+          
+          # 获取最新版本号
+          LATEST_TAG=$(curl -sL "https://api.github.com/repos/openwrt/openwrt/releases/latest" | jq -r .tag_name | sed 's/^v//')
+          echo "LATEST_RELEASE=${LATEST_TAG:-24.10.0}" >> $GITHUB_ENV
+          
+      # ============================================
+      # 8. 下载包
+      # ============================================
+      - name: 📥 Download Packages
+        run: |
+          cd $OPENWRT_PATH
+          
+          # 并行下载
+          make download -j$((PROC_COUNT + 1))
+          
+          # 检查并清理失败的下载
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+          
+          # 重试失败的下载
+          make download -j1 || true
+          
+      # ============================================
+      # 9. 编译固件（优化版）
+      # ============================================
+      - name: 🔨 Compile Firmware
+        id: compile
+        timeout-minutes: 480
+        run: |
+          cd $OPENWRT_PATH
+          
+          # 设置编译环境
+          export FORCE_UNSAFE_CONFIGURE=1
+          export CCACHE_DIR=${{ env.CCACHE_DIR }}
+          
+          # 根据内存大小动态调整编译线程
+          MEM_PER_THREAD=1024  # 每个线程需要的内存(MB)
+          MAX_THREADS=$((MEM_TOTAL / MEM_PER_THREAD))
+          THREADS=$((PROC_COUNT < MAX_THREADS ? PROC_COUNT : MAX_THREADS))
+          
+          echo "编译配置："
+          echo "- CPU 核心数: $PROC_COUNT"
+          echo "- 可用内存: ${MEM_TOTAL}MB"
+          echo "- 编译线程数: $THREADS"
+          
+          # 编译函数
+          compile_with_retry() {
+            local threads=$1
+            echo "尝试使用 $threads 线程编译..."
+            
+            if make -j$threads $BUILD_LOG_LEVEL; then
+              return 0
+            else
+              echo "编译失败，返回码: $?"
+              return 1
+            fi
+          }
+          
+          # 渐进式编译策略
+          if compile_with_retry $THREADS; then
+            echo "编译成功！"
+          elif compile_with_retry $((THREADS/2)); then
+            echo "降级编译成功！"
+          elif compile_with_retry 2; then
+            echo "最小并行编译成功！"
+          elif [[ "${{ github.event.inputs.skip_failed_packages }}" == "true" ]]; then
+            echo "尝试跳过失败的包..."
+            make -j1 V=s IGNORE_ERRORS=1 || true
+          else
+            echo "编译最终失败"
+            exit 1
+          fi
+          
+          # 检查编译结果
+          if find bin/targets -name "*.img.gz" -o -name "*.bin" | grep -q .; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "firmware_path=$PWD/bin/targets/*/*" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "未找到固件文件！"
+            exit 1
+          fi
+          
+      # ============================================
+      # 10. 整理文件
+      # ============================================
+      - name: 📦 Organize Files
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd $OPENWRT_PATH/bin/targets/*/*
+          
+          # 显示校验和
+          cat sha256sums
+          
+          # 保存配置
+          cp $OPENWRT_PATH/.config build.config
+          
+          # 整理内核包
+          if [ -d packages ]; then
+            mkdir -p kernel
+            mv packages/* kernel/ 2>/dev/null || true
+            tar -czf kernel.tar.gz kernel
+            rm -rf kernel
+          fi
+          
+          # 清理不需要的文件
+          rm -rf packages feeds.buildinfo version.buildinfo
+          
+          # 提取内核版本
+          KERNEL_VERSION=$(grep '^kernel' *.manifest | head -1 | awk '{print $2}')
+          echo "KERNEL=$KERNEL_VERSION" >> $GITHUB_ENV
+          echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+          
+          # 生成固件信息文件
+          cat > firmware_info.txt <<EOF
+          构建时间: ${{ env.BUILD_DATE }}
+          内核版本: $KERNEL_VERSION
+          目标平台: ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+          默认 IP: ${{ env.IP_ADDR }}
+          源码分支: ${{ env.REPO_BRANCH }}
+          提交哈希: ${{ env.COMMIT_HASH }}
+          EOF
+          
+      # ============================================
+      # 11. 上传产物
+      # ============================================
+      - name: 📤 Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ env.FILE_DATE }}
+          path: |
+            ${{ env.OPENWRT_PATH }}/logs/
+            ${{ env.OPENWRT_PATH }}/.config
+          retention-days: 7
+          compression-level: 9
+          
+      - name: 📤 Upload Firmware to Artifacts
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-firmware-${{ env.DEVICE_TARGET }}-${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE_PATH }}
+          retention-days: 30
+          compression-level: 6
+          
+      # ============================================
+      # 12. 发布 Release
+      # ============================================
+      - name: 🚀 Create Release
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          name: OpenWrt ${{ env.DEVICE_TARGET }} - ${{ env.TAG_TIME }}
+          tag: ${{ env.FIRMWARE_TAG }}-${{ env.TAG_TIME }}
+          allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: |
+            ${{ env.FIRMWARE_PATH }}/*.img.gz
+            ${{ env.FIRMWARE_PATH }}/*.bin
+            ${{ env.FIRMWARE_PATH }}/*.vmdk
+            ${{ env.FIRMWARE_PATH }}/sha256sums
+            ${{ env.FIRMWARE_PATH }}/build.config
+            ${{ env.FIRMWARE_PATH }}/firmware_info.txt
+            ${{ env.FIRMWARE_PATH }}/kernel.tar.gz
+          body: |
+            ## 🎯 OpenWrt 固件
+            
+            ### 📊 编译信息
+            | 项目 | 信息 |
+            |------|------|
+            | 🏷️ **标签** | `${{ env.FIRMWARE_TAG }}-${{ env.TAG_TIME }}` |
+            | 📅 **编译时间** | ${{ env.BUILD_DATE }} |
+            | 🎯 **目标平台** | `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}` |
+            | 🐧 **内核版本** | `${{ env.KERNEL }}` |
+            | 🌐 **默认 IP** | `${{ env.IP_ADDR }}` |
+            | 🔑 **默认密码** | `${{ github.event.inputs.root_password }}` |
+            
+            ### 📦 包含插件
+            | 插件 | 状态 |
+            |------|------|
+            | Docker | ${{ github.event.inputs.docker && '✅' || '❌' }} |
+            | SSR Plus+ | ${{ github.event.inputs.ssrp && '✅' || '❌' }} |
+            | Passwall | ${{ github.event.inputs.passwall && '✅' || '❌' }} |
+            | OpenClash | ${{ github.event.inputs.openclash && '✅' || '❌' }} |
+            | Lucky | ${{ github.event.inputs.lucky && '✅' || '❌' }} |
+            | OpenAppFilter | ${{ github.event.inputs.oaf && '✅' || '❌' }} |
+            
+            ### 📝 源码信息
+            - **仓库**: [`${{ env.REPO_URL }}`](${{ env.REPO_URL }})
+            - **分支**: `${{ env.REPO_BRANCH }}`
+            - **提交**: `${{ env.COMMIT_HASH }}`
+            - **作者**: ${{ env.COMMIT_AUTHOR }}
+            - **时间**: ${{ env.COMMIT_DATE }}
+            - **说明**: ${{ env.COMMIT_MESSAGE }}
+            
+            ### 📥 下载说明
+            1. `*.img.gz` - 固件镜像文件（需解压后写入）
+            2. `sha256sums` - 文件校验和
+            3. `build.config` - 编译配置文件
+            4. `kernel.tar.gz` - 内核模块包
+            
+            ### ⚡ 刷机提示
+            ```bash
+            # 解压固件
+            gunzip openwrt-*.img.gz
+            
+            # 写入设备（请替换 /dev/sdX 为实际设备）
+            dd if=openwrt-*.img of=/dev/sdX bs=4M status=progress
