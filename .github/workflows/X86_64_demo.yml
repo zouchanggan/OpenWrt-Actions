@@ -99,20 +99,22 @@ jobs:
     - name: Clone Source Code
       run: |
         df -hT $GITHUB_WORKSPACE
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        # 加入 --depth 1 进行浅克隆，节省时间和空间
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         cd openwrt
-        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-        COMMIT_AUTHOR=$(git show -s --date=short --format="作者: %an")
+        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV   
+        # 记录源码版本信息
+        COMMIT_AUTHOR=$(git show -s --format="作者: %an <%ae>")
         echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-        COMMIT_DATE=$(git show -s --date=short --format="时间: %ci")
+        COMMIT_DATE=$(git show -s --format="时间: %ci")
         echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
-        COMMIT_MESSAGE=$(git show -s --date=short --format="内容: %s")
+        COMMIT_MESSAGE=$(git show -s --format="内容: %s")
         echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
-        COMMIT_HASH=$(git show -s --date=short --format="hash: %H")
-        echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
-        echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
-        
-        
+        COMMIT_HASH=$(git show -s --format="Hash: %H")
+        echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV     
+        # 记录当前构建时间
+        echo "CURRENT_DATE=$(date +%Y-%m-%d-%H%M)" >> $GITHUB_ENV
+
     - name: Generate Variables
       run: |
         cp $CONFIG_FILE $OPENWRT_PATH/.config
