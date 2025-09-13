@@ -50,7 +50,7 @@ on:
         type: boolean
         default: true
 env:
-  REPO_URL: openwrt/openwrt
+  REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
   CACHE_VER: v1 # 建议每次重大修改后递增此值以刷新缓存
   CONFIG_FILE: configs/x86_64.config
