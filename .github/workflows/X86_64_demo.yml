@@ -228,15 +228,17 @@ jobs:
           [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
           [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
           [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
-          
+          # ... 你可以在这里继续添加其他插件的 cat 命令 ...
           # 执行主 DIY 脚本
           chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           
-          # 执行额外的核心下载脚本
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihomo-core.sh
+          # 这两个脚本应该位于你的主仓库的 scripts/ 目录下
+          # 确保脚本有可执行权限
+          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
           chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
-          ${{ github.workspace }}/main-repo/scripts/preset-mihomo-core.sh ${{ env.CLASH_KERNEL }}
+          # 执行下载
+          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
           ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
           
           # 生成最终 .config
