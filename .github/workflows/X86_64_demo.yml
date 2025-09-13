@@ -125,12 +125,12 @@ jobs:
         DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
         latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/tags" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
-          if [ -z "$latest_release" ]; then
-            echo "::warning::Failed to fetch latest tag, using fallback."
-            latest_release="24.10.x"
-          fi
-          echo "latest_release=$latest_release" >> $GITHUB_ENV
-          echo "Latest release tag determined: $latest_release"
+        if [ -z "$latest_release" ]; then
+          echo "::warning::Failed to fetch latest tag, using fallback."
+          latest_release="24.10.x"
+        fi
+        echo "latest_release=$latest_release" >> $GITHUB_ENV
+        echo "Latest release tag determined: $latest_release"
 
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2
