@@ -62,6 +62,12 @@ jobs:
           mkdir -p $HOME/.ccache
           echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
        
+      - name: Free disk space
+        uses: sbwml/actions@free-disk
+        with:
+          root-reserve-gb: 4
+          swap-size-gb: 4
+          
       - name: Checkout Action main repository
         uses: actions/checkout@v4
         with:
@@ -80,12 +86,12 @@ jobs:
           echo -e "\n\e[1;32mKernel:\e[0m"
           uname -a
           echo
-          
-      - name: Free disk space
-        uses: sbwml/actions@free-disk
-        with:
-          root-reserve-gb: 4
-          swap-size-gb: 4
+
+      - name: Build System Setup
+        uses: sbwml/actions@openwrt-build-setup
+
+      - name: Install LLVM
+        uses: sbwml/actions@install-llvm
         
       - name: Checkout OpenWrt source code
         uses: actions/checkout@v4
@@ -94,13 +100,7 @@ jobs:
           ref: ${{ env.REPO_BRANCH }}
           path: openwrt
           fetch-depth: 1
-
-      - name: Build System Setup
-        uses: sbwml/actions@openwrt-build-setup
-
-      - name: Install LLVM
-        uses: sbwml/actions@install-llvm
-        
+          
       - name: Set up build variables
         id: setup_vars
         run: |
