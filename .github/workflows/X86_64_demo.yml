@@ -220,31 +220,29 @@ jobs:
           ENABLE_OAF: ${{ github.event.inputs.oaf }}
         run: |
           cd ${{ env.OPENWRT_PATH }}
-          
+      
           # 拷贝基础配置
-          cp ${{ github.workspace }}/${{ env.CONFIG_FILE }} .config
-          
-          # 根据选项添加额外配置
-          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/configs/config-ssrp.txt" ]] && cat ${{ github.workspace }}/configs/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/configs/config-passwall.txt" ]] && cat ${{ github.workspace }}/configs/config-passwall.txt >> .config
-          [[ "$ENABLE_NIKKI"     == "true" && -f "${{ github.workspace }}/configs/config-nikki.txt" ]] && cat ${{ github.workspace }}/configs/config-nikki.txt >> .config
-          [[ "$ENABLE_OPENCLASH" == "true" && -f "${{ github.workspace }}/configs/config-openclash.txt" ]] && cat ${{ github.workspace }}/configs/config-openclash.txt >> .config
-          [[ "$ENABLE_LUCKY"     == "true" && -f "${{ github.workspace }}/configs/config-lucky.txt" ]] && cat ${{ github.workspace }}/configs/config-lucky.txt >> .config
-          [[ "$ENABLE_OAF"       == "true" && -f "${{ github.workspace }}/configs/config-oaf.txt" ]] && cat ${{ github.workspace }}/configs/config-oaf.txt >> .config          
-          # ... 你可以在这里继续添加其他插件的 cat 命令 ...          
+          cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
+          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
+          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/configs/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-ssrp.txt >> .config
+          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/configs/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-passwall.txt >> .config
+          [[ "$ENABLE_NIKKI"     == "true" && -f "${{ github.workspace }}/main-repo/configs/config-nikki.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-nikki.txt >> .config
+          [[ "$ENABLE_OPENCLASH" == "true" && -f "${{ github.workspace }}/main-repo/configs/config-openclash.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-openclash.txt >> .config
+          [[ "$ENABLE_LUCKY"     == "true" && -f "${{ github.workspace }}/main-repo/configs/config-lucky.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-lucky.txt >> .config
+          [[ "$ENABLE_OAF"       == "true" && -f "${{ github.workspace }}/main-repo/configs/config-oaf.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-oaf.txt >> .config 
+          # ... 你可以在这里继续添加其他插件的 cat 命令 ...
           # 执行主 DIY 脚本
-          chmod +x ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
-          ${{ github.workspace }}/${{ env.DIY_SCRIPT }}
+          chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+          ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           
+          # 【新增部分】执行额外的核心下载脚本
           # 这两个脚本应该位于你的主仓库的 scripts/ 目录下
           # 确保脚本有可执行权限
-          chmod +x ${{ github.workspace }}/scripts/preset-mihimo-core.sh
-          chmod +x ${{ github.workspace }}/scripts/preset-adguard-core.sh
+          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
+          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
           # 执行下载
-          ${{ github.workspace }}/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
-          ${{ github.workspace }}/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
-          
+          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
+          ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
           # 生成最终 .config
           make defconfig
           
