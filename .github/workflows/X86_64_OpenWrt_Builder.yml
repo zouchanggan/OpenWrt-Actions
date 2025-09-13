@@ -154,23 +154,39 @@ jobs:
       - name: 🧹 Free disk space
         uses: sbwml/actions@free-disk
           
-      - name: 💾 Additional Space Optimization
+      - name: 💾 Create Swap
         run: |
-          # 删除不需要的工具
-          sudo apt-get remove -y --purge \
-            azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable \
-            firefox powershell mono-devel libgl1-mesa-dri xserver-xorg-core
+          # 显示当前内存和磁盘
+          echo "=== 系统资源 ==="
+          free -h
+          df -h
           
-          # 清理 apt 缓存
-          sudo apt-get autoremove -y --purge
-          sudo apt-get clean
+          # 创建 8GB swap
+          export SWAP_SIZE=8G
+          export SWAP_FILE=/mnt/swapfile
           
-          # 设置 swap 优化参数
+          # 检查 /mnt 是否有足够空间
+          AVAILABLE_MB=$(df /mnt | tail -1 | awk '{print $4}')
+          if [ "$AVAILABLE_MB" -gt 8388608 ]; then
+            echo "在 /mnt 创建 swap..."
+            sudo fallocate -l $SWAP_SIZE $SWAP_FILE
+          else
+            echo "在 / 创建 swap..."
+            SWAP_FILE=/swapfile
+            sudo fallocate -l $SWAP_SIZE $SWAP_FILE
+          fi
+          
+          sudo chmod 600 $SWAP_FILE
+          sudo mkswap $SWAP_FILE
+          sudo swapon $SWAP_FILE
+          
+          # 优化 swap 参数
           sudo sysctl vm.swappiness=10
           sudo sysctl vm.vfs_cache_pressure=50
           
-          echo "磁盘空间优化后："
-          df -h
+          echo "=== Swap 已启用 ==="
+          sudo swapon --show
+          free -h
           
       # ============================================
       # 3. 安装编译依赖
