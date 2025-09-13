@@ -158,12 +158,13 @@ jobs:
         [ -e files ] && mv files $OPENWRT_PATH/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRT_PATH/.config
         chmod +x $GITHUB_WORKSPACE/scripts/*.sh
-        chmod +x $DIY_SCRIPT   
+        chmod +x $DIY_SCRIP
+        
         # 执行自定义脚本
         cd $OPENWRT_PATH
         $GITHUB_WORKSPACE/$DIY_SCRIPT
         $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
-        $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL   
+        $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL 
         # 生成最终 .config
         make defconfig
         # 输出环境变量给后续 job
