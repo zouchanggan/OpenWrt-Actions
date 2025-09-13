@@ -226,9 +226,13 @@ jobs:
           
           # 根据选项添加额外配置
           [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
-          # ... 你可以在这里继续添加其他插件的 cat 命令 ...
+          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/configs/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-ssrp.txt >> .config
+          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/configs/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-passwall.txt >> .config
+          [[ "$ENABLE_NIKKI"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-nikki.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-nikki.txt >> .config
+          [[ "$ENABLE_OPENCLASH"      == "true" && -f "${{ github.workspace }}/main-repo/configs/config-openclash.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-openclash.txt >> .config
+          [[ "$ENABLE_LUCKY"  == "true" && -f "${{ github.workspace }}/main-repo/configs/config-lucky.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-lucky.txt >> .config
+          [[ "$ENABLE_OAF"  == "true" && -f "${{ github.workspace }}/main-repo/configs/config-oaf.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-oaf.txt >> .config          
+          # ... 你可以在这里继续添加其他插件的 cat 命令 ...          
           # 执行主 DIY 脚本
           chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
