@@ -69,11 +69,6 @@ jobs:
           git config --global http.lowSpeedLimit 0
           git config --global http.lowSpeedTime 999999
           
-      - name: 📥 Checkout Main Repository
-        uses: actions/checkout@main
-        with:
-          path: main-repo
-          
       - name: 🗑️ Free Disk Space
         uses: sbwml/actions@free-disk
         with:
@@ -125,6 +120,11 @@ jobs:
           git reset --hard origin/${{ env.REPO_BRANCH }}
           git clean -fdx
           echo "✅ Update completed"
+          
+      - name: 📥 Checkout Main Repository
+        uses: actions/checkout@main
+        with:
+          path: main-repo
           
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
