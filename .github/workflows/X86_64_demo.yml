@@ -150,38 +150,38 @@ jobs:
          ./scripts/feeds install -a
         
     - name: Load Custom Configuration & DIY Script
-        env:
-          LAN: ${{ github.event.inputs.lan_addr }}
-          ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          ENABLE_DOCKER: ${{ github.event.inputs.docker }}
-          ENABLE_SSRP: ${{ github.event.inputs.ssrp }}
-          ENABLE_PASSWALL: ${{ github.event.inputs.passwall }}
-          ENABLE_NIKKI: ${{ github.event.inputs.nikki }}
-          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash }}
-          ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
-          ENABLE_OAF: ${{ github.event.inputs.oaf }}
-        run: |
-          cd ${{ env.OPENWRT_PATH }}
+      env:
+        LAN: ${{ github.event.inputs.lan_addr }}
+        ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
+        ENABLE_DOCKER: ${{ github.event.inputs.docker }}
+        ENABLE_SSRP: ${{ github.event.inputs.ssrp }}
+        ENABLE_PASSWALL: ${{ github.event.inputs.passwall }}
+        ENABLE_NIKKI: ${{ github.event.inputs.nikki }}
+        ENABLE_OPENCLASH: ${{ github.event.inputs.openclash }}
+        ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
+        ENABLE_OAF: ${{ github.event.inputs.oaf }}
+      run: |
+        cd ${{ env.OPENWRT_PATH }}
           
-          cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
-          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
-          chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
-          ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+        cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
+        [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
+        [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
+        [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
+        chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+        ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
           
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
-          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
-          ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
-          make defconfig
+        chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
+        chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
+        ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
+        ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
+        make defconfig
           
-          DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
-          DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/")
-          echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-          echo "IP_ADDR=${LAN}" >> $GITHUB_ENV
-          echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
+        DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
+        DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/")
+        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+        echo "IP_ADDR=${LAN}" >> $GITHUB_ENV
+        echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
         
     - name: Compile Firmware
       id: compile
