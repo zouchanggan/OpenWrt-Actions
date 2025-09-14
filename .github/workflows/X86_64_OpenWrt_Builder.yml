@@ -153,7 +153,7 @@ jobs:
       # ============================================
       - name: 🧹 Free disk space
         uses: sbwml/actions@free-disk
-        with:
+        run: 
           # 清理 apt 缓存
           sudo apt-get autoremove -y --purge
           sudo apt-get clean
