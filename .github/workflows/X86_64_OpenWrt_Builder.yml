@@ -153,6 +153,12 @@ jobs:
       # ============================================
       - name: 🧹 Free disk space
         uses: sbwml/actions@free-disk
+          
+      # ============================================
+      # 3. 安装编译依赖
+      # ============================================
+      - name: 🛠️ Build System Setup
+        uses: sbwml/actions@openwrt-build-setup
         run: 
           # 清理 apt 缓存
           sudo apt-get autoremove -y --purge
@@ -161,13 +167,8 @@ jobs:
           # 设置 swap 优化参数
           sudo sysctl vm.swappiness=10
           sudo sysctl vm.vfs_cache_pressure=50
+          df -h
           
-      # ============================================
-      # 3. 安装编译依赖
-      # ============================================
-      - name: 🛠️ Build System Setup
-        uses: sbwml/actions@openwrt-build-setup
-
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
         
