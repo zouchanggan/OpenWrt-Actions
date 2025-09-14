@@ -63,16 +63,17 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
-    steps:   
+    steps:  
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
     - name: Setup variables
       run: |
         sudo timedatectl set-timezone 'Asia/Shanghai'
         git config --global user.name 'actions'
         git config --global user.email 'action@github.com'
-        
-    - name: Checkout
-      uses: actions/checkout@main
       
     - name: Show system
       run: |
