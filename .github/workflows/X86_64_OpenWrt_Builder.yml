@@ -159,15 +159,6 @@ jobs:
       # ============================================
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
-        run: 
-          # 清理 apt 缓存
-          sudo apt-get autoremove -y --purge
-          sudo apt-get clean
-          
-          # 设置 swap 优化参数
-          sudo sysctl vm.swappiness=10
-          sudo sysctl vm.vfs_cache_pressure=50
-          df -h
           
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
