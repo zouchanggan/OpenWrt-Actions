@@ -71,6 +71,9 @@ jobs:
         git config --global user.name 'actions'
         git config --global user.email 'action@github.com'
         
+    - name: Checkout
+      uses: actions/checkout@main
+      
     - name: Show system
       run: |
         echo -e "\n\e[1;32mCPU:\e[0m"
@@ -87,10 +90,7 @@ jobs:
         
     - name: Free disk space
       uses: sbwml/actions@free-disk
-
-    - name: Checkout
-      uses: actions/checkout@main
-
+      
     - name: Build System Setup
       uses: sbwml/actions@openwrt-build-setup
 
