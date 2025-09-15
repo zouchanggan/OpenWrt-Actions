@@ -62,6 +62,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+    contents: write
+    
     steps:  
     - name: Setup variables
       run: |
@@ -190,14 +193,7 @@ jobs:
     - name: Check Space Usage
       if: (!cancelled())
       run: df -hT
-        
-    - name: Upload Bin Directory
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
-        path: ${{ env.OPENWRT_PATH }}/bin
-        
+     
     - name: Organize Files
       if: steps.compile.outputs.status == 'success'
       run: |
@@ -216,11 +212,11 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE_PATH }}}
+        path: ${{ env.FIRMWARE_PATH }}
 
     - name: Upload Firmware To Release
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
-      uses: ncipollo/release-action@v1.14.0
+      uses: ncipollo/release-action@v1
       with:
         name: ${{ env.FILE_DATE }}-${{ env.FIRMWARE_TAG }}-${{ env.latest_release }}
         allowUpdates: true
