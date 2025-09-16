@@ -149,17 +149,6 @@ curl -s $mirror/doc/patch/kernel-6.6/net/953-net-patch-linux-kernel-to-support-s
 curl -s $mirror/doc/patch/kernel-6.6/igc-fix/996-intel-igc-i225-i226-disable-eee.patch > target/linux/x86/patches-6.6/996-intel-igc-i225-i226-disable-eee.patch
 # =========================== 13. clone/更新自定义第三方包 ===========================
 
-# 删除软件依赖
-rm -rf feeds/packages/net/{v2ray-geodata,open-app-filter,shadowsocksr-libev,shadowsocks-rust,shadowsocks-libev}
-rm -rf feeds/packages/net/{tcping,trojan,trojan-plus,tuic-client,v2ray-core,v2ray-plugin,xray-core,xray-plugin,sing-box}
-rm -rf feeds/packages/net/{chinadns-ng,hysteria,mosdns,lucky,ddns-go,v2dat,golang}
-rm -rf feeds/packages/utils/v2dat
-
-# 删除软件包
-rm -rf feeds/luci/applications/{luci-app-daed,luci-app-dae,luci-app-homeproxy,luci-app-openclash}
-rm -rf feeds/luci/applications/{luci-app-passwall,luci-app-passwall2,luci-app-ssr-plus,luci-app-vssr}
-rm -rf feeds/luci/applications/{luci-app-appfilter,luci-app-ddns-go,luci-app-lucky,luci-app-mosdns,luci-app-alist,luci-app-openlist,luci-app-airwhu}
-
 # NFT FullCone NAT 支持
 git clone https://$gitea/nft-fullcone package/new/nft-fullcone --depth=1
 
@@ -195,8 +184,8 @@ git clone https://$github/sbwml/luci-app-quickfile package/new/quickfile --depth
 git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 --depth=1
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
-# git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
-# mv -n mosdns/{luci-app-mosdns,mosdns,v2dat} ./helloworld && rm -rf mosdns
+git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
+mv -n mosdns/{luci-app-mosdns,mosdns,v2dat} ./helloworld && rm -rf mosdns
 
 # OpenList2 订阅与批量代理规则管理
 git clone https://$github/sbwml/luci-app-openlist2 package/new/openlist --depth=1
