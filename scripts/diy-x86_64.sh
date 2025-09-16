@@ -277,7 +277,7 @@ git clone https://$gitea/luci-app-upnp feeds/luci/applications/luci-app-upnp -b 
 # profile
 sed -i 's#\\u@\\h:\\w\\\$#\\[\\e[32;1m\\][\\u@\\h\\[\\e[0m\\] \\[\\033[01;34m\\]\\W\\[\\033[00m\\]\\[\\e[32;1m\\]]\\[\\e[0m\\]\\\$#g' package/base-files/files/etc/profile
 sed -ri 's/(export PATH=")[^"]*/\1%PATH%:\/opt\/bin:\/opt\/sbin:\/opt\/usr\/bin:\/opt\/usr\/sbin/' package/base-files/files/etc/profile
-sed -i '/PS1/a\export TERM=xterm-color' package/base-files/files/etc/profile
+sed -i '/ENV/i\export TERM=xterm-color' package/base-files/files/etc/profile
 
 # 切换bash
 sed -i 's#ash#bash#g' package/base-files/files/etc/passwd
@@ -288,21 +288,24 @@ curl -so files/root/.bashrc $mirror/doc/files/root/.bashrc
 
 # rootfs files
 mkdir -p files/etc/sysctl.d
+mkdir -p files/etc/hotplug.d/iface
+mkdir -p files/etc/hotplug.d/net
 curl -so files/etc/sysctl.d/10-default.conf $mirror/doc/files/etc/sysctl.d/10-default.conf
 curl -so files/etc/sysctl.d/15-vm-swappiness.conf $mirror/doc/files/etc/sysctl.d/15-vm-swappiness.conf
 curl -so files/etc/sysctl.d/16-udp-buffer-size.conf $mirror/doc/files/etc/sysctl.d/16-udp-buffer-size.conf
+curl -so files/etc/hotplug.d/iface/99-zzz-odhcpd $mirror/doc/files/etc/hotplug.d/iface/99-zzz-odhcpd
+curl -so files/etc/hotplug.d/net/01-maximize_nic_rx_tx_buffers  $mirror/doc/files/etc/hotplug.d/net/01-maximize_nic_rx_tx_buffers
 
 # ZeroWrt Options Menu
 mkdir -p files/bin
-mkdir -p root
 curl -so files/root/version.txt $mirror/doc/files/root/version.txt
 curl -so files/bin/ZeroWrt $mirror/doc/files/bin/ZeroWrt
 chmod +x files/bin/ZeroWrt
 chmod +x files/root/version.txt
 
 # key-build.pub
-curl -so files/root/my-private.key.pub https://raw.githubusercontent.com/zhiern/ipkg-make-index/refs/heads/main/my-private.key.pub
-chmod +x files/root/my-private.key.pub
+curl -so files/root/key-build.pub https://opkg.kejizero.online/key-build.pub
+chmod +x files/root/key-build.pub
 
 # NTP
 sed -i 's/0.openwrt.pool.ntp.org/ntp1.aliyun.com/g' package/base-files/files/bin/config_generate
