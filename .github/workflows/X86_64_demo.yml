@@ -52,10 +52,10 @@ env:
   REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
   CONFIG_FILE: configs/x86_64.config
-  DIY_SCRIPT: scripts/diy-x86_64.sh
+  DIY_SCRIPT: scripts/diy-x86_64_test.sh
   CLASH_KERNEL: amd64
   CACHE_TOOLCHAIN: true
-  UPLOAD_ARTIFACTS: true    # 控制是否上传到Artifacts
+  UPLOAD_ARTIFACTS: false    # 控制是否上传到Artifacts
   UPLOAD_RELEASE: true      # 控制是否创建Release
   # UPLOAD_BIN_DIR: false
   # FIRMWARE_RELEASE: true
