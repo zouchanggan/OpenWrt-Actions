@@ -185,7 +185,6 @@ git clone https://$github/sbwml/openwrt_helloworld package/new/helloworld -b v5 
 
 # MOSDNS v5 DNS高性能服务器与广告过滤
 git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns --depth=1
-mv -n mosdns/{luci-app-mosdns,mosdns,v2dat} ./helloworld && rm -rf mosdns
 
 # OpenList2 订阅与批量代理规则管理
 git clone https://$github/sbwml/luci-app-openlist2 package/new/openlist --depth=1
