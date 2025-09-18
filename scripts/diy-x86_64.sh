@@ -257,11 +257,11 @@ curl -s $mirror/doc/patch/kernel-6.6/igc-fix/996-intel-igc-i225-i226-disable-eee
 rm -rf feeds/luci/applications/luci-app-dockerman
 git clone https://github.com/sirpdboy/luci-app-dockerman.git package/new/dockerman
 mv -n package/new/dockerman/luci-app-dockerman feeds/luci/applications && rm -rf package/new/dockerman
-    rm -rf feeds/packages/utils/{docker,dockerd,containerd,runc}
-    git clone https://$github/sbwml/packages_utils_docker feeds/packages/utils/docker
-    git clone https://$github/sbwml/packages_utils_dockerd feeds/packages/utils/dockerd
-    git clone https://$github/sbwml/packages_utils_containerd feeds/packages/utils/containerd
-    git clone https://$github/sbwml/packages_utils_runc feeds/packages/utils/runc
+rm -rf feeds/packages/utils/{docker,dockerd,containerd,runc}
+git clone https://$github/sbwml/packages_utils_docker feeds/packages/utils/docker
+git clone https://$github/sbwml/packages_utils_dockerd feeds/packages/utils/dockerd
+git clone https://$github/sbwml/packages_utils_containerd feeds/packages/utils/containerd
+git clone https://$github/sbwml/packages_utils_runc feeds/packages/utils/runc
 
 # TTYD
 sed -i 's/services/system/g' feeds/luci/applications/luci-app-ttyd/root/usr/share/luci/menu.d/luci-app-ttyd.json
