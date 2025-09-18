@@ -271,8 +271,8 @@ sed -i 's/procd_set_param stderr 1/procd_set_param stderr 0/g' feeds/packages/ut
 
 # UPnP
 rm -rf feeds/{packages/net/miniupnpd,luci/applications/luci-app-upnp}
-git clone https://$gitea/miniupnpd feeds/packages/net/miniupnpd -b v2.3.9
-git clone https://$gitea/luci-app-upnp feeds/luci/applications/luci-app-upnp -b openwrt-24.10
+git clone https://$github/grandway2025/miniupnpd feeds/packages/net/miniupnpd
+git clone https://$github/grandway2025/luci-app-upnp feeds/luci/applications/luci-app-upnp
 
 # profile
 sed -i 's#\\u@\\h:\\w\\\$#\\[\\e[32;1m\\][\\u@\\h\\[\\e[0m\\] \\[\\033[01;34m\\]\\W\\[\\033[00m\\]\\[\\e[32;1m\\]]\\[\\e[0m\\]\\\$#g' package/base-files/files/etc/profile
