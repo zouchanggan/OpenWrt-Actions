@@ -70,7 +70,7 @@ env:
   
   # 配置文件
   CONFIG_FILE: configs/x86_64.config
-  DIY_SCRIPT: scripts/diy-x86_64_demo.sh
+  DIY_SCRIPT: scripts/diy-x86_64.sh
   FEEDS_CONF: feeds.conf.default
   
   # 编译设置
