@@ -519,7 +519,7 @@ jobs:
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
         uses: ncipollo/release-action@v1
         with:
-          name: ${{ env.FILE_DATE }}-OpenWrt-${{ env.FIRMWARE_TAG }}-${{ env.LATEST_RELEASE }}
+          name: ${{ env.FILE_DATE }}-OpenWrt-${{ env.FIRMWARE_TAG }}
           tag: ${{ env.FIRMWARE_TAG }}-${{ env.BUILD_VERSION }}
           allowUpdates: true
           removeArtifacts: false
@@ -529,36 +529,37 @@ jobs:
           body: |
             ## 🎯 OpenWrt Firmware [${{ env.BUILD_ID }}]
             
-            ### 📊 Build Information
+            ### 📊 构建信息
             | 项目 | 信息 |
             |------|------|
-            | **Version** | `${{ env.BUILD_VERSION }}` |
-            | **Date** | `${{ env.BUILD_DATE }}` |
-            | **Target** | `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}` |
-            | **Kernel** | `${{ env.KERNEL }}` |
+            | **版本** | `${{ env.BUILD_VERSION }}` |
+            | **日期** | `${{ env.BUILD_DATE }}` |
+            | **目标** | `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}` |
+            | **内核** | `${{ env.KERNEL_VERSION }}` |
             | **LAN IP** | `${{ github.event.inputs.lan_addr }}` |
-            | **Password** | `${{ github.event.inputs.root_password }}` |
+            | **密码** | `${{ github.event.inputs.root_password }}` |
             
-            ### 📦 Included Plugins
-            - Docker: ${{ github.event.inputs.docker == 'true' && '✅' || '❌' }}
-            - ShadowSocksR Plus+: ${{ github.event.inputs.ssrp == 'true' && '✅' || '❌' }}
-            - Passwall: ${{ github.event.inputs.passwall == 'true' && '✅' || '❌' }}
-            - OpenClash: ${{ github.event.inputs.openclash == 'true' && '✅' || '❌' }}
-            - Lucky: ${{ github.event.inputs.lucky == 'true' && '✅' || '❌' }}
-            - OpenAppFilter: ${{ github.event.inputs.oaf == 'true' && '✅' || '❌' }}
+            ### 📦 包含的插件
+            | 插件 | 状态 |
+            |------|------|
+            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已启用' || '❌ 未启用' }} |
+            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已启用' || '❌ 未启用' }} |
+            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已启用' || '❌ 未启用' }} |
+            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已启用' || '❌ 未启用' }} |
+            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已启用' || '❌ 未启用' }} |
             
-            ### 📝 Source Information
-            - **Repository**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
-            - **Branch**: `${{ env.REPO_BRANCH }}`
-            - **Commit**: `${{ env.COMMIT_HASH }}`
-            - **Author**: ${{ env.COMMIT_AUTHOR }}
-            - **Date**: ${{ env.COMMIT_DATE }}
-            - **Message**: ${{ env.COMMIT_MESSAGE }}
+            ### 📝 源码信息
+            - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
+            - **分支**: `${{ env.REPO_BRANCH }}`
+            - **提交**: `${{ env.COMMIT_HASH }}`
+            - **作者**: ${{ env.COMMIT_AUTHOR }}
+            - **时间**: ${{ env.COMMIT_DATE }}
+            - **消息**: ${{ env.COMMIT_MESSAGE }}
             
-            ### 📥 Installation
+            ### 📥 安装说明
             ```bash
-            # Extract firmware
+            # 解压固件
             gunzip openwrt-*.img.gz
             
-            # Write to device
+            # 写入设备
             dd if=openwrt-*.img of=/dev/sdX bs=4M status=progress
