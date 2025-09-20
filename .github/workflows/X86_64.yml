@@ -76,8 +76,8 @@ env:
   # 编译设置
   CLASH_KERNEL: amd64
   CACHE_TOOLCHAIN: true
-  UPLOAD_BIN_DIR: false
-  FIRMWARE_RELEASE: true
+  UPLOAD_ARTIFACTS: false    # 控制是否上传到Artifacts
+  UPLOAD_RELEASE: true      # 控制是否创建Release
   FIRMWARE_TAG: X86_64
   
   # 系统设置
@@ -439,75 +439,60 @@ jobs:
       # ============================================
       # 12. 整理文件
       # ============================================
-      - name: 📦 Organize Files
+      - name: 📦 Organize Firmware
         if: steps.compile.outputs.status == 'success'
         id: organize
         run: |
           cd $OPENWRT_PATH/bin/targets/*/*
           
-          # 显示文件列表
-          echo "=== Firmware Files ==="
-          ls -lh
+          echo "=== Generated files ==="
+          ls -lah
           
-          # 显示校验和
-          echo "=== SHA256 Checksums ==="
-          cat sha256sums
+          # 提取内核版本
+          KERNEL_VERSION=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')
           
           # 保存配置文件
           cp $OPENWRT_PATH/.config build.config
-          cp $OPENWRT_PATH/.config.old build.config.old 2>/dev/null || true
           
-          # 整理内核模块
+          # 压缩内核模块
           if [ -d packages ]; then
-            mkdir kernel
-            mv packages/* kernel/
-            tar -czf kernel.tar.gz kernel
-            rm -rf kernel packages
+            tar -czf kernel-modules.tar.gz packages/
+            rm -rf packages
           fi
           
-          # 清理不需要的文件
+          # 清理不必要的文件
           rm -f feeds.buildinfo version.buildinfo
           
-          
-          # 提取内核版本
-          echo "KERNEL=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')" >> $GITHUB_ENV
-      
-          # 输出到环境变量和日志
-          echo "KERNEL=$KERNEL_VERSION" >> $GITHUB_ENV
-          echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
-          echo "✅ Kernel version extracted: $KERNEL_VERSION"
-          # =============================================================
-          
-          # 生成固件信息
+          # 生成固件信息文件
           cat > firmware_info.json << EOF
           {
-            "build_date": "${{ env.BUILD_DATE }}",
-            "build_version": "${{ env.BUILD_VERSION }}",
-            "build_id": "${{ env.BUILD_ID }}",
+            "build_date": "$BUILD_DATE",
+            "build_version": "$BUILD_VERSION",
+            "build_id": "$BUILD_ID",
             "kernel_version": "$KERNEL_VERSION",
-            "target": "${{ env.DEVICE_TARGET }}",
-            "subtarget": "${{ env.DEVICE_SUBTARGET }}",
+            "target": "$DEVICE_TARGET",
+            "subtarget": "$DEVICE_SUBTARGET",
             "lan_address": "${{ github.event.inputs.lan_addr }}",
-            "repo_branch": "${{ env.REPO_BRANCH }}",
-            "commit_hash": "${{ env.COMMIT_HASH }}",
+            "commit_hash": "$COMMIT_HASH",
             "plugins": {
               "docker": ${{ github.event.inputs.docker }},
               "ssrp": ${{ github.event.inputs.ssrp }},
               "passwall": ${{ github.event.inputs.passwall }},
               "openclash": ${{ github.event.inputs.openclash }},
-              "lucky": ${{ github.event.inputs.lucky }},
-              "oaf": ${{ github.event.inputs.oaf }}
+              "nikki": ${{ github.event.inputs.nikki }}
             }
           }
           EOF
           
-          echo "✅ Files organized successfully"
-          
+          echo "firmware_path=$PWD" >> $GITHUB_OUTPUT
+          echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+          echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
       # ============================================
       # 13. 上传固件
       # ============================================
       - name: 📤 Upload Artifacts
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt-${{ env.DEVICE_TARGET }}-${{ env.FILE_DATE }}
@@ -516,8 +501,8 @@ jobs:
           compression-level: 6
           
       - name: 🚀 Create Release
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
-        uses: ncipollo/release-action@v1
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
+        uses: ncipollo/release-action@v1.14.0
         with:
           name: ${{ env.FILE_DATE }}-OpenWrt-${{ env.FIRMWARE_TAG }}
           tag: ${{ env.FIRMWARE_TAG }}-${{ env.BUILD_VERSION }}
