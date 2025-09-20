@@ -356,6 +356,22 @@ jobs:
       # ============================================
       # 9. 下载包
       # ============================================
+      - name: 📥 Download Packages
+        run: |
+          cd $OPENWRT_PATH
+          
+          echo "📥 Starting package download..."
+          make download -j$((COMPILE_JOBS + 1))
+          
+          # 检查失败的下载
+          echo "🔍 Checking for failed downloads..."
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+          
+          # 重试下载
+          make download -j1 || true
+          
+          echo "✅ Download completed"
           
       # ============================================
       # 10. 编译固件
