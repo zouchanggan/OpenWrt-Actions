@@ -5,9 +5,6 @@
 # 脚本URL
 export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
-# 私有Gitea
-export gitea=git.kejizero.online/zhao
-
 # GitHub镜像
 export github="github.com"
 
@@ -434,6 +431,10 @@ mv -n package/new/kucat/luci-theme-kucat package/new/luci-theme-kucat && rm -rf 
 
 # lucky
 git clone https://$github/gdy666/luci-app-lucky.git package/new/lucky
+
+# luci-app-socat
+git clone https://$github/grandway2025/luci-app-socat package/new/socat
+mv -n package/new/socat/luci-app-socat package/new/luci-app-socat && rm -rf package/new/socat
 
 # custom packages pkgs
 rm -rf feeds/packages/utils/coremark
