@@ -389,7 +389,7 @@ git clone https://$github/sbwml/luci-app-openlist2 package/new/openlist --depth=
 sed -i 's/syslog/none/g' feeds/packages/admin/netdata/files/netdata.conf
 
 # caddy
-git clone https://git.kejizero.online/zhao/luci-app-caddy package/new/caddy
+git clone https://$github/grandway2025/luci-app-caddy package/new/caddy
 
 # Mosdns
 git clone https://$github/sbwml/luci-app-mosdns -b v5 package/new/mosdns
