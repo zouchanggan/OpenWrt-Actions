@@ -103,6 +103,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       date: ${{ steps.version.outputs.date }}
       build_id: ${{ steps.version.outputs.build_id }}
+      firmware_path: ${{ steps.organize.outputs.firmware_path }}
+      kernel_version: ${{ steps.organize.outputs.kernel_version }}
     
     steps:
       - name: 📝 Generate Build Info
@@ -447,7 +449,7 @@ jobs:
           
           echo "=== Generated files ==="
           ls -lah
-          
+
           # 提取内核版本
           KERNEL_VERSION=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')
           
