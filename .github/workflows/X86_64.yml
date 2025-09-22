@@ -519,9 +519,9 @@ jobs:
             ### 📊 构建信息
             | 项目 | 信息 |
             |------|------|
-            | **版本** | `${{ env.BUILD_VERSION }}` |
+            | **版本** | `${{ env.LATEST_RELEASE }}` |
             | **日期** | `${{ env.BUILD_DATE }}` |
-            | **目标** | `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}` |
+            | **架构** | `${{ env.DEVICE_TARGET }}_${{ env.DEVICE_SUBTARGET }}` |
             | **内核** | `${{ env.KERNEL_VERSION }}` |
             | **LAN IP** | `${{ github.event.inputs.lan_addr }}` |
             | **密码** | `${{ github.event.inputs.root_password }}` |
@@ -529,11 +529,11 @@ jobs:
             ### 📦 包含的插件
             | 插件 | 状态 |
             |------|------|
-            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已启用' || '❌ 未启用' }} |
-            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已启用' || '❌ 未启用' }} |
-            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已启用' || '❌ 未启用' }} |
-            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已启用' || '❌ 未启用' }} |
-            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已启用' || '❌ 未启用' }} |
+            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             
             ### 📝 源码信息
             - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
