@@ -474,6 +474,7 @@ jobs:
             "target": "$DEVICE_TARGET",
             "subtarget": "$DEVICE_SUBTARGET",
             "lan_address": "${{ github.event.inputs.lan_addr }}",
+            "latest_release": "$LATEST_RELEASE",
             "commit_hash": "$COMMIT_HASH",
             "plugins": {
               "docker": ${{ github.event.inputs.docker }},
@@ -489,6 +490,7 @@ jobs:
           echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >>$GITHUB_ENV
       # ============================================
       # 13. 上传固件
       # ============================================
