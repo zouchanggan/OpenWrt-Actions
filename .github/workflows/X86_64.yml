@@ -17,26 +17,11 @@ on:
         default: "password"
         required: false
         type: string
-      docker:
-        description: "🐋 Docker 支持"
-        type: boolean
-        default: true
-      ssrp:
-        description: "🚀 ShadowSocksR Plus+"
-        type: boolean
-        default: true
-      passwall:
-        description: "🌐 Passwall"
-        type: boolean
-        default: true
-      nikki:
-        description: "📦 Nikki"
-        type: boolean
-        default: true
-      openclash:
-        description: "⚡ OpenClash"
-        type: boolean
-        default: true
+      plugins:
+        description: "📦 选择插件 (用空格分隔, 如: docker ssrp passwall)"
+        required: false
+        type: string
+        default: "docker ssrp passwall nikki openclash Lucky adguardhome oaf"
       # 新增优化选项
       use_cache:
         description: "💾 使用缓存加速"
@@ -303,22 +288,86 @@ jobs:
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
-          ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
-          ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
-          ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
-          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
-          ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
-          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
+          PLUGINS_INPUT: ${{ github.event.inputs.plugins }}
         run: |
+          # 切换到 OpenWrt 目录
+          cd $OPENWRT_PATH
+    
+          # 解析插件字符串
+          echo "=== 解析插件配置: $PLUGINS_INPUT ==="
+    
+          # 初始化所有插件为禁用状态
+          ENABLE_DOCKER="n"
+          ENABLE_SSRP="n"
+          ENABLE_PASSWALL="n"
+          ENABLE_NIKKI="n"
+          ENABLE_OPENCLASH="n"
+          ENABLE_OAF="n"
+          ENABLE_LUCKY="n"
+          ENABLE_ADGUARDHOME="n"
+    
+          # 将输入转换为小写并解析
+          plugins_lower=$(echo "$PLUGINS_INPUT" | tr '[:upper:]' '[:lower:]')
+    
+          # 解析每个插件
+          for plugin in $plugins_lower; do
+            case "$plugin" in
+              docker|dockerman)
+                ENABLE_DOCKER="y"
+                echo "✅ Docker 已启用"
+                ;;
+              ssrp|ssr|shadowsocksr)
+                ENABLE_SSRP="y"
+                echo "✅ ShadowSocksR Plus+ 已启用"
+                ;;
+              passwall|pass)
+                ENABLE_PASSWALL="y"
+                echo "✅ Passwall 已启用"
+                ;;
+              nikki)
+                ENABLE_NIKKI="y"
+                echo "✅ Nikki 已启用"
+                ;;
+              openclash|clash)
+                ENABLE_OPENCLASH="y"
+                echo "✅ OpenClash 已启用"
+                ;;
+              oaf|openappfilter)
+                ENABLE_OAF="y"
+                echo "✅ OpenAppFilter 已启用"
+                ;;
+              lucky|luck)
+                ENABLE_LUCKY="y"
+                echo "✅ Lucky 已启用"
+                ;;
+              adguardhome|adguard|agh)
+                ENABLE_ADGUARDHOME="y"
+                echo "✅ AdGuard Home 已启用"
+                ;;
+              *)
+                echo "⚠️ 未知插件: $plugin"
+                ;;
+            esac
+          done
+    
+          # 显示插件配置摘要
+          echo ""
+          echo "📦 启用的插件:"
+          [ "$ENABLE_DOCKER" = "y" ] && echo "   ✅ Docker"
+          [ "$ENABLE_SSRP" = "y" ] && echo "   ✅ ShadowSocksR Plus+"
+          [ "$ENABLE_PASSWALL" = "y" ] && echo "   ✅ Passwall"
+          [ "$ENABLE_NIKKI" = "y" ] && echo "   ✅ Nikki"
+          [ "$ENABLE_OPENCLASH" = "y" ] && echo "   ✅ OpenClash"
+          [ "$ENABLE_OAF" = "y" ] && echo "   ✅ OpenAppFilter"
+          [ "$ENABLE_LUCKY" = "y" ] && echo "   ✅ Lucky"
+          [ "$ENABLE_ADGUARDHOME" = "y" ] && echo "   ✅ AdGuard Home"
+          echo ""
+          # 将原来的条件判断替换为环境变量
           
           # 复制自定义文件
           [ -e files ] && mv files $OPENWRT_PATH/files
           chmod +x $GITHUB_WORKSPACE/scripts/*.sh
           chmod +x $DIY_SCRIPT
-   
-          # 切换到 OpenWrt 目录
-          cd $OPENWRT_PATH
 
           # 复制主仓库 configs 到源码目录
           cp $GITHUB_WORKSPACE/${CONFIG_FILE} .config
