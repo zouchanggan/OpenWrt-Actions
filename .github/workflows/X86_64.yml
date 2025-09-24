@@ -303,13 +303,13 @@ jobs:
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          ENABLE_DOCKER: ${{ github.event.inputs.docker }}
-          ENABLE_SSRP: ${{ github.event.inputs.ssrp }}
-          ENABLE_PASSWALL: ${{ github.event.inputs.passwall }}
-          ENABLE_NIKKI: ${{ github.event.inputs.nikki }}
-          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash }}
-          ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
-          ENABLE_OAF: ${{ github.event.inputs.oaf }}
+          ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
+          ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
+          ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
+          ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
+          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
+          ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
+          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
         run: |
           
           # 复制自定义文件
