@@ -292,7 +292,42 @@ jobs:
         run: |
           # 切换到 OpenWrt 目录
           cd $OPENWRT_PATH
+
+          # ✅ 添加这段：导出环境变量
+          {
+            echo "ENABLE_DOCKER=$ENABLE_DOCKER"
+            echo "ENABLE_SSRP=$ENABLE_SSRP"
+            echo "ENABLE_PASSWALL=$ENABLE_PASSWALL"
+            echo "ENABLE_NIKKI=$ENABLE_NIKKI"
+            echo "ENABLE_OPENCLASH=$ENABLE_OPENCLASH"
+            echo "ENABLE_OAF=$ENABLE_OAF"
+            echo "ENABLE_LUCKY=$ENABLE_LUCKY"
+            echo "ENABLE_ADGUARDHOME=$ENABLE_ADGUARDHOME"
+          } >> $GITHUB_ENV
     
+          # 修复 firmware_info.json
+          cat > firmware_info.json << EOF
+          {
+            "build_date": "$BUILD_DATE",
+            "build_version": "$BUILD_VERSION",
+            "build_id": "$BUILD_ID",
+            "kernel_version": "$KERNEL_VERSION",
+            "target": "$DEVICE_TARGET",
+            "subtarget": "$DEVICE_SUBTARGET",
+            "lan_address": "${{ github.event.inputs.lan_addr }}",
+            "commit_hash": "$COMMIT_HASH",
+            "plugins": {
+              "docker": $([ "$ENABLE_DOCKER" = "y" ] && echo "true" || echo "false"),
+              "ssrp": $([ "$ENABLE_SSRP" = "y" ] && echo "true" || echo "false"),
+              "passwall": $([ "$ENABLE_PASSWALL" = "y" ] && echo "true" || echo "false"),
+              "openclash": $([ "$ENABLE_OPENCLASH" = "y" ] && echo "true" || echo "false"),
+              "nikki": $([ "$ENABLE_NIKKI" = "y" ] && echo "true" || echo "false"),
+              "oaf": $([ "$ENABLE_OAF" = "y" ] && echo "true" || echo "false"),
+              "lucky": $([ "$ENABLE_LUCKY" = "y" ] && echo "true" || echo "false"),
+              "adguardhome": $([ "$ENABLE_ADGUARDHOME" = "y" ] && echo "true" || echo "false")
+            }
+          }
+          EOF
           # 解析插件字符串
           echo "=== 解析插件配置: $PLUGINS_INPUT ==="
     
@@ -582,6 +617,9 @@ jobs:
             | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenAppFilter | ${{ env.ENABLE_OAF == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | Lucky | ${{ env.ENABLE_LUCKY == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | AdGuard Home | ${{ env.ENABLE_ADGUARDHOME == 'y' && '✅ 已编译' || '❌ 未编译' }} |
             
             ### 📝 源码信息
             - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
