@@ -262,7 +262,7 @@ jobs:
           skip: false
           clean: false
           prefix: ${{ env.OPENWRT_PATH }}
-          mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+          mixkey: ${{ env.REPO_URL }}-${{ env.REPO_BRANCH }}-x86_64-generic
 
       # ============================================
       # 7. Feeds 更新
@@ -292,45 +292,8 @@ jobs:
         run: |
           # 切换到 OpenWrt 目录
           cd $OPENWRT_PATH
-
-          # ✅ 添加这段：导出环境变量
-          {
-            echo "ENABLE_DOCKER=$ENABLE_DOCKER"
-            echo "ENABLE_SSRP=$ENABLE_SSRP"
-            echo "ENABLE_PASSWALL=$ENABLE_PASSWALL"
-            echo "ENABLE_NIKKI=$ENABLE_NIKKI"
-            echo "ENABLE_OPENCLASH=$ENABLE_OPENCLASH"
-            echo "ENABLE_OAF=$ENABLE_OAF"
-            echo "ENABLE_LUCKY=$ENABLE_LUCKY"
-            echo "ENABLE_ADGUARDHOME=$ENABLE_ADGUARDHOME"
-          } >> $GITHUB_ENV
-    
-          # 修复 firmware_info.json
-          cat > firmware_info.json << EOF
-          {
-            "build_date": "$BUILD_DATE",
-            "build_version": "$BUILD_VERSION",
-            "build_id": "$BUILD_ID",
-            "kernel_version": "$KERNEL_VERSION",
-            "target": "$DEVICE_TARGET",
-            "subtarget": "$DEVICE_SUBTARGET",
-            "lan_address": "${{ github.event.inputs.lan_addr }}",
-            "commit_hash": "$COMMIT_HASH",
-            "plugins": {
-              "docker": $([ "$ENABLE_DOCKER" = "y" ] && echo "true" || echo "false"),
-              "ssrp": $([ "$ENABLE_SSRP" = "y" ] && echo "true" || echo "false"),
-              "passwall": $([ "$ENABLE_PASSWALL" = "y" ] && echo "true" || echo "false"),
-              "openclash": $([ "$ENABLE_OPENCLASH" = "y" ] && echo "true" || echo "false"),
-              "nikki": $([ "$ENABLE_NIKKI" = "y" ] && echo "true" || echo "false"),
-              "oaf": $([ "$ENABLE_OAF" = "y" ] && echo "true" || echo "false"),
-              "lucky": $([ "$ENABLE_LUCKY" = "y" ] && echo "true" || echo "false"),
-              "adguardhome": $([ "$ENABLE_ADGUARDHOME" = "y" ] && echo "true" || echo "false")
-            }
-          }
-          EOF
           # 解析插件字符串
           echo "=== 解析插件配置: $PLUGINS_INPUT ==="
-    
           # 初始化所有插件为禁用状态
           ENABLE_DOCKER="n"
           ENABLE_SSRP="n"
@@ -340,10 +303,8 @@ jobs:
           ENABLE_OAF="n"
           ENABLE_LUCKY="n"
           ENABLE_ADGUARDHOME="n"
-    
           # 将输入转换为小写并解析
           plugins_lower=$(echo "$PLUGINS_INPUT" | tr '[:upper:]' '[:lower:]')
-    
           # 解析每个插件
           for plugin in $plugins_lower; do
             case "$plugin" in
@@ -384,7 +345,17 @@ jobs:
                 ;;
             esac
           done
-    
+          # ✅ 正确位置：解析完成后导出环境变量
+          {
+            echo "ENABLE_DOCKER=$ENABLE_DOCKER"
+            echo "ENABLE_SSRP=$ENABLE_SSRP"
+            echo "ENABLE_PASSWALL=$ENABLE_PASSWALL"
+            echo "ENABLE_NIKKI=$ENABLE_NIKKI"
+            echo "ENABLE_OPENCLASH=$ENABLE_OPENCLASH"
+            echo "ENABLE_OAF=$ENABLE_OAF"
+            echo "ENABLE_LUCKY=$ENABLE_LUCKY"
+            echo "ENABLE_ADGUARDHOME=$ENABLE_ADGUARDHOME"
+          } >> $GITHUB_ENV
           # 显示插件配置摘要
           echo ""
           echo "📦 启用的插件:"
@@ -397,38 +368,33 @@ jobs:
           [ "$ENABLE_LUCKY" = "y" ] && echo "   ✅ Lucky"
           [ "$ENABLE_ADGUARDHOME" = "y" ] && echo "   ✅ AdGuard Home"
           echo ""
-          # 将原来的条件判断替换为环境变量
-          
+    
           # 复制自定义文件
-          [ -e files ] && mv files $OPENWRT_PATH/files
+          [ -e $GITHUB_WORKSPACE/files ] && mv $GITHUB_WORKSPACE/files files
           chmod +x $GITHUB_WORKSPACE/scripts/*.sh
-          chmod +x $DIY_SCRIPT
-
-          # 复制主仓库 configs 到源码目录
-          cp $GITHUB_WORKSPACE/${CONFIG_FILE} .config
-          # 执行脚本
+          chmod +x $GITHUB_WORKSPACE/$DIY_SCRIPT
+          # 复制配置文件
+          cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
+    
+          # 执行自定义脚本
           $GITHUB_WORKSPACE/$DIY_SCRIPT
           $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
           $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL
-          
+    
           # 最终配置
           make defconfig
-
           # 提取设备信息
           DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' .config | cut -d'"' -f2)
           DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' .config | cut -d'"' -f2)
-          
+    
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-          echo "IP_ADDR=${{ github.event.inputs.lan_addr }}" >> $GITHUB_ENV
-          echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
-          
+    
           # 获取最新版本
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | grep "tag_name" | head -n 1 | cut -d : -f2 | sed 's/[ \"v,]//g')
-          echo "latest_release=${latest_release}" >>$GITHUB_ENV
-
+          echo "latest_release=$latest_release" >> $GITHUB_ENV
           echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
-          echo "📌 Latest Release: $LATEST_RELEASE"
+          echo "📌 Latest Release: $latest_release"
           
       - name: 🧹 Clean Build Directory
         if: steps.cache.outputs.cache-hit != 'true'
@@ -560,11 +526,14 @@ jobs:
             "lan_address": "${{ github.event.inputs.lan_addr }}",
             "commit_hash": "$COMMIT_HASH",
             "plugins": {
-              "docker": ${{ github.event.inputs.docker }},
-              "ssrp": ${{ github.event.inputs.ssrp }},
-              "passwall": ${{ github.event.inputs.passwall }},
-              "openclash": ${{ github.event.inputs.openclash }},
-              "nikki": ${{ github.event.inputs.nikki }}
+              "docker": $([[ "$ENABLE_DOCKER" == "y" ]] && echo "true" || echo "false"),
+              "ssrp": $([[ "$ENABLE_SSRP" == "y" ]] && echo "true" || echo "false"),
+              "passwall": $([[ "$ENABLE_PASSWALL" == "y" ]] && echo "true" || echo "false"),
+              "openclash": $([[ "$ENABLE_OPENCLASH" == "y" ]] && echo "true" || echo "false"),
+              "nikki": $([[ "$ENABLE_NIKKI" == "y" ]] && echo "true" || echo "false"),
+              "oaf": $([[ "$ENABLE_OAF" == "y" ]] && echo "true" || echo "false"),
+              "lucky": $([[ "$ENABLE_LUCKY" == "y" ]] && echo "true" || echo "false"),
+              "adguardhome": $([[ "$ENABLE_ADGUARDHOME" == "y" ]] && echo "true" || echo "false")
             }
           }
           EOF
@@ -612,15 +581,15 @@ jobs:
             ### 📦 包含的插件
             | 插件 | 状态 |
             |------|------|
-            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Docker | ${{ env.ENABLE_DOCKER == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | ShadowSocksR Plus+ | ${{ env.ENABLE_SSRP == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | Passwall | ${{ env.ENABLE_PASSWALL == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenClash | ${{ env.ENABLE_OPENCLASH == 'y' && '✅ 已编译' || '❌ 未编译' }} |
+            | Nikki | ${{ env.ENABLE_NIKKI == 'y' && '✅ 已编译' || '❌ 未编译' }} |
             | OpenAppFilter | ${{ env.ENABLE_OAF == 'y' && '✅ 已编译' || '❌ 未编译' }} |
             | Lucky | ${{ env.ENABLE_LUCKY == 'y' && '✅ 已编译' || '❌ 未编译' }} |
             | AdGuard Home | ${{ env.ENABLE_ADGUARDHOME == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            
+
             ### 📝 源码信息
             - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
             - **分支**: `${{ env.REPO_BRANCH }}`
