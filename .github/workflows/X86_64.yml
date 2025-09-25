@@ -376,6 +376,19 @@ jobs:
           # 复制配置文件
           cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
     
+          # ✅ 关键：通过环境变量传递给脚本
+          env \
+            ENABLE_DOCKER="$ENABLE_DOCKER" \
+            ENABLE_SSRP="$ENABLE_SSRP" \
+            ENABLE_PASSWALL="$ENABLE_PASSWALL" \
+            ENABLE_NIKKI="$ENABLE_NIKKI" \
+            ENABLE_OPENCLASH="$ENABLE_OPENCLASH" \
+            ENABLE_OAF="$ENABLE_OAF" \
+            ENABLE_LUCKY="$ENABLE_LUCKY" \
+            ENABLE_ADGUARDHOME="$ENABLE_ADGUARDHOME" \
+            LAN="$LAN" \
+            ROOT_PASSWORD="$ROOT_PASSWORD" \
+
           # 执行自定义脚本
           $GITHUB_WORKSPACE/$DIY_SCRIPT
           $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
