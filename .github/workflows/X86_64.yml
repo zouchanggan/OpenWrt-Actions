@@ -17,24 +17,26 @@ on:
         default: "password"
         required: false
         type: string
-      plugins:
-        description: "📦 选择插件 (用空格分隔, 如: docker ssrp passwall)"
-        required: false
-        type: string
-        default: "docker ssrp passwall nikki openclash Lucky adguardhome oaf"
-      # 新增优化选项
-      use_cache:
-        description: "💾 使用缓存加速"
+      docker:
+        description: "🐋 Docker 支持"
         type: boolean
         default: true
-      debug_mode:
-        description: "🐛 调试模式"
+      ssrp:
+        description: "🚀 ShadowSocksR Plus+"
         type: boolean
-        default: false
-      parallel_jobs:
-        description: "🔢 并行任务数 (0=自动)"
-        type: string
-        default: "0"
+        default: true
+      passwall:
+        description: "🌐 Passwall"
+        type: boolean
+        default: true
+      nikki:
+        description: "📦 Nikki"
+        type: boolean
+        default: true
+      openclash:
+        description: "⚡ OpenClash"
+        type: boolean
+        default: true
   # 定时构建
   # schedule:
   #   - cron: '0 2 * * 5'  # 每周五凌晨2点
@@ -49,23 +51,15 @@ on:
 # 全局环境变量
 # ============================================
 env:
-  # 源码仓库
   REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  
-  # 配置文件
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
-  FEEDS_CONF: feeds.conf.default
-  
-  # 编译设置
   CLASH_KERNEL: amd64
-  CACHE_TOOLCHAIN: true
-  UPLOAD_ARTIFACTS: false    # 控制是否上传到Artifacts
-  UPLOAD_RELEASE: true      # 控制是否创建Release
+  UPLOAD_ARTIFACTS: false
+  UPLOAD_RELEASE: true
   FIRMWARE_TAG: X86_64
-  
-  # 系统设置
+  USE_CACHE: true
   TZ: Asia/Shanghai
   DEBIAN_FRONTEND: noninteractive
 # ============================================
@@ -88,22 +82,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       date: ${{ steps.version.outputs.date }}
       build_id: ${{ steps.version.outputs.build_id }}
-      firmware_path: ${{ steps.organize.outputs.firmware_path }}
-      kernel_version: ${{ steps.organize.outputs.kernel_version }}
-    
     steps:
       - name: 📝 Generate Build Info
         id: version
         run: |
-          # 生成构建信息
           VERSION=$(date +'%Y.%m.%d')
           DATE=$(date +'%Y-%m-%d %H:%M:%S')
           BUILD_ID="${{ github.run_number }}-${GITHUB_SHA::7}"
-          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "date=$DATE" >> $GITHUB_OUTPUT
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
-          
           echo "📅 Build Version: $VERSION"
           echo "🕐 Build Date: $DATE"
           echo "🔖 Build ID: $BUILD_ID"
@@ -115,58 +103,28 @@ jobs:
     needs: initialize
     runs-on: ubuntu-24.04
     timeout-minutes: 720
-    
-    # 环境变量继承
     env:
       BUILD_VERSION: ${{ needs.initialize.outputs.version }}
       BUILD_DATE: ${{ needs.initialize.outputs.date }}
       BUILD_ID: ${{ needs.initialize.outputs.build_id }}
-    
     steps:
-      # ============================================
-      # 1. 环境初始化
-      # ============================================
       - name: 🔧 Setup Environment
         id: env
         run: |
-          # 时区设置
           sudo timedatectl set-timezone "$TZ"
-          
-          # Git 配置
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          # 环境变量
           echo "WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "FILE_DATE=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
           echo "TAG_TIME=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
-          
-          # 系统信息
           PROC_COUNT=$(nproc)
           MEM_GB=$(($(free -m | awk '/^Mem:/{print $2}') / 1024))
-          
-          # 计算并行任务数
-          if [ "${{ github.event.inputs.parallel_jobs }}" = "0" ]; then
-            # 自动计算：每个任务需要 2GB 内存
-            JOBS=$((MEM_GB / 2))
-            JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
-            JOBS=$((JOBS < 1 ? 1 : JOBS))
-          else
-            JOBS="${{ github.event.inputs.parallel_jobs }}"
-          fi
-          
+          JOBS=$((MEM_GB / 2))
+          JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
+          JOBS=$((JOBS < 1 ? 1 : JOBS))
           echo "PROC_COUNT=$PROC_COUNT" >> $GITHUB_ENV
           echo "MEM_GB=$MEM_GB" >> $GITHUB_ENV
           echo "COMPILE_JOBS=$JOBS" >> $GITHUB_ENV
-          
-          # 调试模式
-          if [[ "${{ github.event.inputs.debug_mode }}" == "true" ]]; then
-            echo "BUILD_FLAGS=V=s" >> $GITHUB_ENV
-            set -x
-          else
-            echo "BUILD_FLAGS=" >> $GITHUB_ENV
-          fi
-          
       - name: 📊 System Information
         run: |
           cat << EOF
@@ -184,22 +142,14 @@ jobs:
           $(df -h | grep -E '^/dev/')
           =====================================
           EOF
-          
-      # ============================================
-      # 2. 磁盘空间优化
-      # ============================================
       - name: 🧹 Free Disk Space
         uses: sbwml/actions@free-disk
-          
       - name: 💾 Setup Swap
         run: |
-          # 创建 swap
           sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          
-          # 优化内存管理
           cat << EOF | sudo tee -a /etc/sysctl.conf
           vm.swappiness=10
           vm.vfs_cache_pressure=50
@@ -208,53 +158,31 @@ jobs:
           vm.max_map_count=262144
           EOF
           sudo sysctl -p
-          
           echo "Memory status:"
           free -h
-      # ============================================
-      # 3. 检出代码
-      # ============================================
       - name: ✅ Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-              
-      # ============================================
-      # 4. 安装依赖
-      # ============================================
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
-          
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
-        
-      # ============================================
-      # 5. 克隆源码
-      # ============================================
       - name: 📥 Clone OpenWrt Source
         id: clone
         run: |
-          # 克隆源码
           git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
           cd openwrt
-          
-          # 设置路径
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-          
-          # 获取提交信息
           COMMIT_INFO=$(git log -1 --pretty=format:'%an|%ci|%s|%H')
           IFS='|' read -r AUTHOR DATE MESSAGE HASH <<< "$COMMIT_INFO"
-          
           echo "COMMIT_AUTHOR=$AUTHOR" >> $GITHUB_ENV
           echo "COMMIT_DATE=$DATE" >> $GITHUB_ENV
           echo "COMMIT_MESSAGE=$MESSAGE" >> $GITHUB_ENV
           echo "COMMIT_HASH=$HASH" >> $GITHUB_ENV
-          
-      # ============================================
-      # 6. 缓存管理
-      # ============================================
       - name: 💾 Cache Management
-        if: github.event.inputs.use_cache == 'true'
+        if: env.USE_CACHE == 'true'
+        id: cache
         uses: HiGarfield/cachewrtbuild@main
         with:
           ccache: true
@@ -263,10 +191,6 @@ jobs:
           clean: false
           prefix: ${{ env.OPENWRT_PATH }}
           mixkey: ${{ env.REPO_URL }}-${{ env.REPO_BRANCH }}-x86_64-generic
-
-      # ============================================
-      # 7. Feeds 更新
-      # ============================================
       - name: 📚 Update Feeds
         run: |
           cd $OPENWRT_PATH
@@ -275,178 +199,63 @@ jobs:
           else
             echo "::warning::feeds.conf.default not found in . Using default OpenWrt feeds."
           fi
-          # 更新 feeds
           ./scripts/feeds update -a
-          
-          # 安装 feeds
           ./scripts/feeds install -a
-          
-      # ============================================
-      # 8. 自定义配置
-      # ============================================
       - name: 🎨 Custom Configuration
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          PLUGINS_INPUT: ${{ github.event.inputs.plugins }}
+          ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
+          ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
+          ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
+          ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
+          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
         run: |
-          # 切换到 OpenWrt 目录
+          if [ -d "$GITHUB_WORKSPACE/files" ]; then
+            mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
+          fi
+          if [ -d "$GITHUB_WORKSPACE/scripts" ]; then
+            chmod +x $GITHUB_WORKSPACE/scripts/*.sh || true
+          fi
+          chmod +x $DIY_SCRIPT
           cd $OPENWRT_PATH
-          # 解析插件字符串
-          echo "=== 解析插件配置: $PLUGINS_INPUT ==="
-          # 初始化所有插件为禁用状态
-          ENABLE_DOCKER="n"
-          ENABLE_SSRP="n"
-          ENABLE_PASSWALL="n"
-          ENABLE_NIKKI="n"
-          ENABLE_OPENCLASH="n"
-          ENABLE_OAF="n"
-          ENABLE_LUCKY="n"
-          ENABLE_ADGUARDHOME="n"
-          # 将输入转换为小写并解析
-          plugins_lower=$(echo "$PLUGINS_INPUT" | tr '[:upper:]' '[:lower:]')
-          # 解析每个插件
-          for plugin in $plugins_lower; do
-            case "$plugin" in
-              docker|dockerman)
-                ENABLE_DOCKER="y"
-                echo "✅ Docker 已启用"
-                ;;
-              ssrp|ssr|shadowsocksr)
-                ENABLE_SSRP="y"
-                echo "✅ ShadowSocksR Plus+ 已启用"
-                ;;
-              passwall|pass)
-                ENABLE_PASSWALL="y"
-                echo "✅ Passwall 已启用"
-                ;;
-              nikki)
-                ENABLE_NIKKI="y"
-                echo "✅ Nikki 已启用"
-                ;;
-              openclash|clash)
-                ENABLE_OPENCLASH="y"
-                echo "✅ OpenClash 已启用"
-                ;;
-              oaf|openappfilter)
-                ENABLE_OAF="y"
-                echo "✅ OpenAppFilter 已启用"
-                ;;
-              lucky|luck)
-                ENABLE_LUCKY="y"
-                echo "✅ Lucky 已启用"
-                ;;
-              adguardhome|adguard|agh)
-                ENABLE_ADGUARDHOME="y"
-                echo "✅ AdGuard Home 已启用"
-                ;;
-              *)
-                echo "⚠️ 未知插件: $plugin"
-                ;;
-            esac
-          done
-          # ✅ 正确位置：解析完成后导出环境变量
-          {
-            echo "ENABLE_DOCKER=$ENABLE_DOCKER"
-            echo "ENABLE_SSRP=$ENABLE_SSRP"
-            echo "ENABLE_PASSWALL=$ENABLE_PASSWALL"
-            echo "ENABLE_NIKKI=$ENABLE_NIKKI"
-            echo "ENABLE_OPENCLASH=$ENABLE_OPENCLASH"
-            echo "ENABLE_OAF=$ENABLE_OAF"
-            echo "ENABLE_LUCKY=$ENABLE_LUCKY"
-            echo "ENABLE_ADGUARDHOME=$ENABLE_ADGUARDHOME"
-          } >> $GITHUB_ENV
-          # 显示插件配置摘要
-          echo ""
-          echo "📦 启用的插件:"
-          [ "$ENABLE_DOCKER" = "y" ] && echo "   ✅ Docker"
-          [ "$ENABLE_SSRP" = "y" ] && echo "   ✅ ShadowSocksR Plus+"
-          [ "$ENABLE_PASSWALL" = "y" ] && echo "   ✅ Passwall"
-          [ "$ENABLE_NIKKI" = "y" ] && echo "   ✅ Nikki"
-          [ "$ENABLE_OPENCLASH" = "y" ] && echo "   ✅ OpenClash"
-          [ "$ENABLE_OAF" = "y" ] && echo "   ✅ OpenAppFilter"
-          [ "$ENABLE_LUCKY" = "y" ] && echo "   ✅ Lucky"
-          [ "$ENABLE_ADGUARDHOME" = "y" ] && echo "   ✅ AdGuard Home"
-          echo ""
-    
-          # 复制自定义文件
-          [ -e $GITHUB_WORKSPACE/files ] && mv $GITHUB_WORKSPACE/files files
-          chmod +x $GITHUB_WORKSPACE/scripts/*.sh
-          chmod +x $GITHUB_WORKSPACE/$DIY_SCRIPT
-          # 复制配置文件
-          cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
-    
-          # ✅ 关键：通过环境变量传递给脚本
-          env \
-            ENABLE_DOCKER="$ENABLE_DOCKER" \
-            ENABLE_SSRP="$ENABLE_SSRP" \
-            ENABLE_PASSWALL="$ENABLE_PASSWALL" \
-            ENABLE_NIKKI="$ENABLE_NIKKI" \
-            ENABLE_OPENCLASH="$ENABLE_OPENCLASH" \
-            ENABLE_OAF="$ENABLE_OAF" \
-            ENABLE_LUCKY="$ENABLE_LUCKY" \
-            ENABLE_ADGUARDHOME="$ENABLE_ADGUARDHOME" \
-            LAN="$LAN" \
-            ROOT_PASSWORD="$ROOT_PASSWORD" \
-
-          # 执行自定义脚本
+          cp $GITHUB_WORKSPACE/${CONFIG_FILE} .config
           $GITHUB_WORKSPACE/$DIY_SCRIPT
           $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
           $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL
-    
-          # 最终配置
           make defconfig
-          # 提取设备信息
           DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' .config | cut -d'"' -f2)
           DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' .config | cut -d'"' -f2)
-    
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-    
-          # 获取最新版本
+          echo "IP_ADDR=${{ github.event.inputs.lan_addr }}" >> $GITHUB_ENV
+          echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | grep "tag_name" | head -n 1 | cut -d : -f2 | sed 's/[ \"v,]//g')
-          echo "latest_release=$latest_release" >> $GITHUB_ENV
+          echo "latest_release=${latest_release}" >>$GITHUB_ENV
           echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
           echo "📌 Latest Release: $latest_release"
-          
       - name: 🧹 Clean Build Directory
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           cd $OPENWRT_PATH
           echo "缓存未命中，确保一个干净的构建环境..."
           rm -rf build_dir tmp
-          make defconfig  
-          
-      # ============================================
-      # 9. 下载包
-      # ============================================
+          make defconfig
       - name: 📥 Download Packages
         run: |
           cd $OPENWRT_PATH
-          
           echo "📥 Starting package download..."
           make download -j$((COMPILE_JOBS + 1))
-          
-          # 检查失败的下载
           echo "🔍 Checking for failed downloads..."
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
-          
-          # 重试下载
           make download -j1 || true
-          
           echo "✅ Download completed"
-          
-      # ============================================
-      # 10. 编译固件
-      # ============================================
       - name: 🔨 Compile Firmware
         id: compile
         timeout-minutes: 600
         run: |
           cd $OPENWRT_PATH
-          
-          # 编译信息
           cat << EOF
           =====================================
           🔨 Starting Compilation
@@ -456,20 +265,15 @@ jobs:
           Time: $(date)
           =====================================
           EOF
-          
-          # 编译函数
           compile_firmware() {
             local jobs=$1
             echo "🔧 Compiling with $jobs jobs..."
-            
             if make -j$jobs $BUILD_FLAGS 2>&1 | tee compile.log; then
               return 0
             else
               return 1
             fi
           }
-          
-          # 渐进式编译
           if compile_firmware $COMPILE_JOBS; then
             echo "✅ Compilation successful!"
           elif compile_firmware $((COMPILE_JOBS/2)); then
@@ -478,19 +282,11 @@ jobs:
             echo "✅ Compilation successful (single job)!"
           else
             echo "❌ Compilation failed!"
-            
-            # 输出错误日志
             echo "=== Last 100 lines of compile.log ==="
             tail -n 100 compile.log
             exit 1
           fi
-          
-          # 设置输出
           echo "status=success" >> $GITHUB_OUTPUT
-          
-      # ============================================
-      # 11. 检查空间
-      # ============================================
       - name: 💾 Check Space
         if: always()
         run: |
@@ -499,35 +295,20 @@ jobs:
           echo
           echo "=== Memory Usage ==="
           free -h
-          
-      # ============================================
-      # 12. 整理文件
-      # ============================================
       - name: 📦 Organize Firmware
         if: steps.compile.outputs.status == 'success'
         id: organize
         run: |
           cd $OPENWRT_PATH/bin/targets/*/*
-          
           echo "=== Generated files ==="
           ls -lah
-
-          # 提取内核版本
           KERNEL_VERSION=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')
-          
-          # 保存配置文件
           cp $OPENWRT_PATH/.config build.config
-          
-          # 压缩内核模块
           if [ -d packages ]; then
             tar -czf kernel-modules.tar.gz packages/
             rm -rf packages
           fi
-          
-          # 清理不必要的文件
           rm -f feeds.buildinfo version.buildinfo
-          
-          # 生成固件信息文件
           cat > firmware_info.json << EOF
           {
             "build_date": "$BUILD_DATE",
@@ -539,25 +320,18 @@ jobs:
             "lan_address": "${{ github.event.inputs.lan_addr }}",
             "commit_hash": "$COMMIT_HASH",
             "plugins": {
-              "docker": $([[ "$ENABLE_DOCKER" == "y" ]] && echo "true" || echo "false"),
-              "ssrp": $([[ "$ENABLE_SSRP" == "y" ]] && echo "true" || echo "false"),
-              "passwall": $([[ "$ENABLE_PASSWALL" == "y" ]] && echo "true" || echo "false"),
-              "openclash": $([[ "$ENABLE_OPENCLASH" == "y" ]] && echo "true" || echo "false"),
-              "nikki": $([[ "$ENABLE_NIKKI" == "y" ]] && echo "true" || echo "false"),
-              "oaf": $([[ "$ENABLE_OAF" == "y" ]] && echo "true" || echo "false"),
-              "lucky": $([[ "$ENABLE_LUCKY" == "y" ]] && echo "true" || echo "false"),
-              "adguardhome": $([[ "$ENABLE_ADGUARDHOME" == "y" ]] && echo "true" || echo "false")
+              "docker": ${{ github.event.inputs.docker }},
+              "ssrp": ${{ github.event.inputs.ssrp }},
+              "passwall": ${{ github.event.inputs.passwall }},
+              "openclash": ${{ github.event.inputs.openclash }},
+              "nikki": ${{ github.event.inputs.nikki }}
             }
           }
           EOF
-          
           echo "firmware_path=$PWD" >> $GITHUB_OUTPUT
           echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
-      # ============================================
-      # 13. 上传固件
-      # ============================================
       - name: 📤 Upload Artifacts
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
@@ -566,7 +340,6 @@ jobs:
           path: ${{ env.FIRMWARE_PATH }}
           retention-days: 30
           compression-level: 6
-          
       - name: 🚀 Create Release
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
         uses: ncipollo/release-action@v1.14.0
@@ -594,15 +367,12 @@ jobs:
             ### 📦 包含的插件
             | 插件 | 状态 |
             |------|------|
-            | Docker | ${{ env.ENABLE_DOCKER == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | ShadowSocksR Plus+ | ${{ env.ENABLE_SSRP == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | Passwall | ${{ env.ENABLE_PASSWALL == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | OpenClash | ${{ env.ENABLE_OPENCLASH == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | Nikki | ${{ env.ENABLE_NIKKI == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | OpenAppFilter | ${{ env.ENABLE_OAF == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | Lucky | ${{ env.ENABLE_LUCKY == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-            | AdGuard Home | ${{ env.ENABLE_ADGUARDHOME == 'y' && '✅ 已编译' || '❌ 未编译' }} |
-
+            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            
             ### 📝 源码信息
             - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
             - **分支**: `${{ env.REPO_BRANCH }}`
