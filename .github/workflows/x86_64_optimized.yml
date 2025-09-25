@@ -148,15 +148,10 @@ jobs:
           PROC_COUNT=$(nproc)
           MEM_GB=$(($(free -m | awk '/^Mem:/{print $2}') / 1024))
           
-          # 计算并行任务数
-          if [ "${{ github.event.inputs.parallel_jobs }}" = "0" ]; then
-            # 自动计算：每个任务需要 2GB 内存
-            JOBS=$((MEM_GB / 2))
-            JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
-            JOBS=$((JOBS < 1 ? 1 : JOBS))
-          else
-            JOBS="${{ github.event.inputs.parallel_jobs }}"
-          fi
+          # 自动计算并行任务数：每个任务需要 2GB 内存
+          JOBS=$((MEM_GB / 2))
+          JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
+          JOBS=$((JOBS < 1 ? 1 : JOBS))
           
           echo "PROC_COUNT=$PROC_COUNT" >> $GITHUB_ENV
           echo "MEM_GB=$MEM_GB" >> $GITHUB_ENV
