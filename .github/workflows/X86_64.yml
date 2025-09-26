@@ -37,6 +37,14 @@ on:
         description: "⚡ OpenClash"
         type: boolean
         default: true
+      lucky:
+        description: "编译 Lucky"
+        type: boolean
+        default: true
+      oaf:
+        description: "编译 OpenAppFilter"
+        type: boolean
+        default: true  
   # 定时构建
   # schedule:
   #   - cron: '0 2 * * 5'  # 每周五凌晨2点
@@ -210,6 +218,8 @@ jobs:
           ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
           ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
           ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
+          ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
+          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}      
         run: |
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
             mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
@@ -372,6 +382,8 @@ jobs:
             | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | lucky | ${{ github.event.inputs.lucky == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenAppFilter | ${{ github.event.inputs.oaf == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             
             ### 📝 源码信息
             - **仓库**: [${{ env.REPO_URL }}](${{ env.REPO_URL }})
