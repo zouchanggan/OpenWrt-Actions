@@ -38,23 +38,13 @@ on:
         type: boolean
         default: true
       lucky:
-        description: "编译 Lucky"
+        description: "🍀 Lucky"
         type: boolean
         default: true
       oaf:
-        description: "编译 OpenAppFilter"
+        description: "🛡️ OpenAppFilter"
         type: boolean
-        default: true  
-  # 定时构建
-  # schedule:
-  #   - cron: '0 2 * * 5'  # 每周五凌晨2点
-  # 推送触发
-  # push:
-  #   branches: [ main ]
-  #   paths:
-  #     - 'configs/x86_64.config'
-  #     - '.github/workflows/build-release.yml'
-  #     - 'scripts/diy-x86_64_demo.sh'
+        default: true
 # ============================================
 # 全局环境变量
 # ============================================
@@ -80,9 +70,6 @@ concurrency:
 # 主任务
 # ============================================
 jobs:
-  # ============================================
-  # 初始化任务
-  # ============================================
   initialize:
     name: 🎯 Initialize Build
     runs-on: ubuntu-latest
@@ -103,9 +90,6 @@ jobs:
           echo "📅 Build Version: $VERSION"
           echo "🕐 Build Date: $DATE"
           echo "🔖 Build ID: $BUILD_ID"
-  # ============================================
-  # 主构建任务
-  # ============================================
   build:
     name: 🏗️ Build OpenWrt
     needs: initialize
@@ -189,8 +173,8 @@ jobs:
           echo "COMMIT_MESSAGE=$MESSAGE" >> $GITHUB_ENV
           echo "COMMIT_HASH=$HASH" >> $GITHUB_ENV
       - name: 💾 Cache Management
-        if: env.USE_CACHE == 'true'
         id: cache
+        if: env.USE_CACHE == 'true'
         uses: HiGarfield/cachewrtbuild@main
         with:
           ccache: true
@@ -199,6 +183,16 @@ jobs:
           clean: false
           prefix: ${{ env.OPENWRT_PATH }}
           mixkey: ${{ env.REPO_URL }}-${{ env.REPO_BRANCH }}-x86_64-generic
+        # 缓存编译工具链与 ccache，显著缩短后续构建时间，同时需注意缓存命中时的残留产物
+      - name: 🧽 Reset Build Artifacts
+        run: |
+          cd $OPENWRT_PATH
+          # 缓存恢复后移除旧的 build/tmp 等目录，避免二次构建出现残留引发的工具链冲突
+          rm -rf ./tmp
+          rm -rf ./build_dir
+          mkdir -p ./build_dir
+          make defconfig
+        # 这一步确保即使缓存命中也能从干净的编译目录开始
       - name: 📚 Update Feeds
         run: |
           cd $OPENWRT_PATH
@@ -219,20 +213,22 @@ jobs:
           ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
           ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
           ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
-          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}      
+          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
         run: |
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
-            mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
+            mv "$GITHUB_WORKSPACE/files" "$OPENWRT_PATH/files"
           fi
           if [ -d "$GITHUB_WORKSPACE/scripts" ]; then
-            chmod +x $GITHUB_WORKSPACE/scripts/*.sh || true
+            chmod +x "$GITHUB_WORKSPACE"/scripts/*.sh || true
           fi
-          chmod +x $DIY_SCRIPT
-          cd $OPENWRT_PATH
-          cp $GITHUB_WORKSPACE/${CONFIG_FILE} .config
-          $GITHUB_WORKSPACE/$DIY_SCRIPT
-          $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
-          $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL
+          if [ -f "$DIY_SCRIPT" ]; then
+            chmod +x "$DIY_SCRIPT"
+          fi
+          cd "$OPENWRT_PATH"
+          cp "$GITHUB_WORKSPACE/${CONFIG_FILE}" .config
+          "$GITHUB_WORKSPACE/$DIY_SCRIPT"
+          "$GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
+          "$GITHUB_WORKSPACE/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
           make defconfig
           DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' .config | cut -d'"' -f2)
           DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' .config | cut -d'"' -f2)
@@ -241,16 +237,9 @@ jobs:
           echo "IP_ADDR=${{ github.event.inputs.lan_addr }}" >> $GITHUB_ENV
           echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
           latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | grep "tag_name" | head -n 1 | cut -d : -f2 | sed 's/[ \"v,]//g')
-          echo "latest_release=${latest_release}" >>$GITHUB_ENV
+          echo "latest_release=${latest_release}" >> $GITHUB_ENV
           echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
           echo "📌 Latest Release: $latest_release"
-      - name: 🧹 Clean Build Directory
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          cd $OPENWRT_PATH
-          echo "缓存未命中，确保一个干净的构建环境..."
-          rm -rf build_dir tmp
-          make defconfig
       - name: 📥 Download Packages
         run: |
           cd $OPENWRT_PATH
@@ -278,15 +267,15 @@ jobs:
           compile_firmware() {
             local jobs=$1
             echo "🔧 Compiling with $jobs jobs..."
-            if make -j$jobs $BUILD_FLAGS 2>&1 | tee compile.log; then
+            if make -j"$jobs" $BUILD_FLAGS 2>&1 | tee compile.log; then
               return 0
             else
               return 1
             fi
           }
-          if compile_firmware $COMPILE_JOBS; then
+          if compile_firmware "$COMPILE_JOBS"; then
             echo "✅ Compilation successful!"
-          elif compile_firmware $((COMPILE_JOBS/2)); then
+          elif compile_firmware "$((COMPILE_JOBS/2))"; then
             echo "✅ Compilation successful (reduced jobs)!"
           elif compile_firmware 1; then
             echo "✅ Compilation successful (single job)!"
@@ -297,6 +286,7 @@ jobs:
             exit 1
           fi
           echo "status=success" >> $GITHUB_OUTPUT
+        # 根据硬件资源动态调整并行度，失败时逐步降级，最大限度保证构建成功率
       - name: 💾 Check Space
         if: always()
         run: |
@@ -306,8 +296,8 @@ jobs:
           echo "=== Memory Usage ==="
           free -h
       - name: 📦 Organize Firmware
-        if: steps.compile.outputs.status == 'success'
         id: organize
+        if: steps.compile.outputs.status == 'success'
         run: |
           cd $OPENWRT_PATH/bin/targets/*/*
           echo "=== Generated files ==="
@@ -331,9 +321,9 @@ jobs:
             "commit_hash": "$COMMIT_HASH",
             "plugins": {
               "docker": ${{ github.event.inputs.docker }},
-              "ShadowSocksR Plus+": ${{ github.event.inputs.ssrp }},
+              "ssrp": ${{ github.event.inputs.ssrp }},
               "passwall": ${{ github.event.inputs.passwall }},
-              "OpenClash": ${{ github.event.inputs.OpenClash }},
+              "openclash": ${{ github.event.inputs.openclash }},
               "nikki": ${{ github.event.inputs.nikki }},
               "lucky": ${{ github.event.inputs.lucky }},
               "oaf": ${{ github.event.inputs.oaf }}
@@ -344,6 +334,7 @@ jobs:
           echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        # 将关键构建信息固化，便于发布/排错
       - name: 📤 Upload Artifacts
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
@@ -384,7 +375,7 @@ jobs:
             | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | lucky | ${{ github.event.inputs.lucky == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Lucky | ${{ github.event.inputs.lucky == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | OpenAppFilter | ${{ github.event.inputs.oaf == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             
             ### 📝 源码信息
