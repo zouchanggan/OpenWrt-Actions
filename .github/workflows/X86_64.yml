@@ -191,7 +191,6 @@ jobs:
           rm -rf ./tmp
           rm -rf ./build_dir
           mkdir -p ./build_dir
-          make defconfig
         # 这一步确保即使缓存命中也能从干净的编译目录开始
       - name: 📚 Update Feeds
         run: |
