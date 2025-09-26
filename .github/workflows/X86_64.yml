@@ -331,10 +331,12 @@ jobs:
             "commit_hash": "$COMMIT_HASH",
             "plugins": {
               "docker": ${{ github.event.inputs.docker }},
-              "ssrp": ${{ github.event.inputs.ssrp }},
+              "ShadowSocksR Plus+": ${{ github.event.inputs.ssrp }},
               "passwall": ${{ github.event.inputs.passwall }},
-              "openclash": ${{ github.event.inputs.openclash }},
-              "nikki": ${{ github.event.inputs.nikki }}
+              "OpenClash": ${{ github.event.inputs.OpenClash }},
+              "nikki": ${{ github.event.inputs.nikki }},
+              "lucky": ${{ github.event.inputs.lucky }},
+              "oaf": ${{ github.event.inputs.oaf }}
             }
           }
           EOF
