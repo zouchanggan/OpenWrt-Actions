@@ -1,244 +1,567 @@
+# Author: P3TERX (Modified and Optimized)
+#=================================================
 name: 💻 Build OpenWrt (x86_64)
+permissions:
+  contents: write
+  actions: read
+# ============================================
+# 触发条件
+# ============================================
 on:
   workflow_dispatch:
     inputs:
       lan_addr:
-        description: "设置默认 LAN 地址"
+        description: "📍 默认 LAN 地址"
         default: "192.168.1.10"
         required: true
         type: string
       root_password:
-        description: "默认 root 密码（可选，默认 password）"
+        description: "🔑 Root 密码"
         default: "password"
         required: false
         type: string
       docker:
-        description: "编译 Docker"
+        description: "🐋 Docker 支持"
         type: boolean
         default: true
       ssrp:
-        description: "编译 ShadowSocksR Plus+"
+        description: "🚀 ShadowSocksR Plus+"
         type: boolean
         default: true
       passwall:
-        description: "编译 Passwall"
+        description: "🌐 Passwall"
         type: boolean
         default: true
       nikki:
-        description: "编译 Nikki"
+        description: "📦 Nikki"
         type: boolean
         default: true
       openclash:
-        description: "编译 OpenClash"
+        description: "⚡ OpenClash"
         type: boolean
         default: true
       lucky:
-        description: "编译 Lucky"
+        description: "🍀 Lucky"
         type: boolean
         default: true
       oaf:
-        description: "编译 OpenAppFilter"
+        description: "🛡️ OpenAppFilter"
         type: boolean
         default: true
+      force_clean:
+        description: "🧹 强制清理缓存"
+        type: boolean
+        default: false
+# ============================================
+# 全局环境变量
+# ============================================
 env:
-  REPO_URL: openwrt/openwrt
+  REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  CACHE_VER: v8 # 建议每次重大修改后递增此值以刷新缓存
   CONFIG_FILE: configs/x86_64.config
   DIY_SCRIPT: scripts/diy-x86_64.sh
+  FEEDS_CONF: feeds.conf.default
   CLASH_KERNEL: amd64
-  UPLOAD_BIN_DIR: false
-  FIRMWARE_RELEASE: true
+  UPLOAD_ARTIFACTS: false
+  UPLOAD_RELEASE: true
   FIRMWARE_TAG: X86_64
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
+# ============================================
+# 并发控制
+# ============================================
+concurrency:
+  group: build-${{ github.ref }}-${{ github.event.inputs.lan_addr }}
+  cancel-in-progress: false
+# ============================================
+# 主任务
+# ============================================
 jobs:
   build:
+    name: 🏗️ Build OpenWrt
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
-    
+    timeout-minutes: 720
+    outputs:
+      firmware_path: ${{ steps.organize.outputs.firmware_path }}
+      kernel_version: ${{ steps.organize.outputs.kernel_version }}
     steps:
-      - name: Setup environment
-        run: |
-          sudo timedatectl set-timezone Asia/Shanghai
-          mkdir -p $HOME/.ccache
-          echo "max_size = 5.0G" > $HOME/.ccache/ccache.conf
-       
-      - name: Free disk space
-        uses: sbwml/actions@free-disk
-        with:
-          root-reserve-gb: 4
-          swap-size-gb: 4
-          
-      - name: Checkout Action main repository
+      # ============================================
+      # 1. 代码检出（提前到最前面）
+      # ============================================
+      - name: ✅ Checkout Repository
         uses: actions/checkout@v4
         with:
-          path: main-repo
-          
-      - name: Show system
-        run: |
-          echo -e "\n\e[1;32mCPU:\e[0m"
-          echo "$(grep 'model name' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}') ($(grep 'cpu MHz' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}')MHz) x $(grep processor /proc/cpuinfo  | wc -l)"
-          echo -e "\n\e[1;32mMemory:\e[0m"
-          free -h
-          echo -e "\n\e[1;32mStorage:\e[0m"
-          df -Th / /mnt
-          echo -e "\n\e[1;32mSystem:\e[0m"
-          lsb_release -a
-          echo -e "\n\e[1;32mKernel:\e[0m"
-          uname -a
-          echo
-
-      - name: Build System Setup
-        uses: sbwml/actions@openwrt-build-setup
-
-      - name: Install LLVM
-        uses: sbwml/actions@install-llvm
-        
-      - name: Checkout OpenWrt source code
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.REPO_URL }}
-          ref: ${{ env.REPO_BRANCH }}
-          path: openwrt
           fetch-depth: 1
           
-      - name: Set up build variables
-        id: setup_vars
+      # ============================================
+      # 2. 环境初始化与系统信息
+      # ============================================
+      - name: 🔧 Setup Environment
+        id: env
         run: |
+          # 时区与 Git 基本配置
+          sudo timedatectl set-timezone "$TZ"
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          # 构建信息
+          VERSION=$(date +'%Y.%m.%d')
+          DATE=$(date +'%Y-%m-%d %H:%M:%S')
+          BUILD_ID="${{ github.run_number }}-${GITHUB_SHA::7}"
+          FILE_DATE=$(date +'%Y.%m.%d-%H%M')
+          
+          # 自动并行：以内存为基准计算安全并行数
+          PROC_COUNT=$(nproc)
+          MEM_GB=$(($(free -m | awk '/^Mem:/{print $2}') / 1024))
+          JOBS=$((MEM_GB / 2))
+          JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
+          JOBS=$((JOBS < 1 ? 1 : JOBS))
+          
+          # 缓存键按插件组合与周次划分，便于定期刷新
+          CONFIG_HASH=$(echo "${{ toJSON(github.event.inputs) }}" | sha256sum | cut -d' ' -f1 | head -c 8)
+          WEEK_KEY=$(date +'%Y%U')
+          CACHE_KEY="$WEEK_KEY-$CONFIG_HASH"
+          
+          # 显示系统信息
+          echo "====================================="
+          echo "📊 System Information"
+          echo "====================================="
+          echo "CPU: $(lscpu | grep 'Model name' | cut -d':' -f2 | xargs)"
+          echo "Cores: $PROC_COUNT | Memory: ${MEM_GB}GB | Jobs: $JOBS"
+          echo "OS: $(lsb_release -ds) | Kernel: $(uname -r)"
+          echo "Build: $VERSION ($BUILD_ID)"
+          echo "Cache Key: $CACHE_KEY"
+          echo "====================================="
+          
+          # 导出环境变量
+          {
+            echo "BUILD_VERSION=$VERSION"
+            echo "BUILD_DATE=$DATE"
+            echo "BUILD_ID=$BUILD_ID"
+            echo "FILE_DATE=$FILE_DATE"
+            echo "COMPILE_JOBS=$JOBS"
+            echo "CACHE_KEY=$CACHE_KEY"
+          } >> $GITHUB_ENV
+          
+      # ============================================
+      # 3. 系统优化
+      # ============================================
+      - name: 🧹 Free Disk Space
+        uses: sbwml/actions@free-disk
+        
+      - name: 💾 Setup Swap & Memory Optimization
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo tee -a /etc/sysctl.conf >/dev/null <<EOF
+          vm.swappiness=10
+          vm.vfs_cache_pressure=50
+          vm.dirty_ratio=15
+          vm.dirty_background_ratio=5
+          vm.max_map_count=262144
+          EOF
+          sudo sysctl -p
+          echo "Memory status:"
+          free -h
+      
+      # ============================================
+      # 4. 构建依赖安装
+      # ============================================
+      - name: 🛠️ Build System Setup
+        uses: sbwml/actions@openwrt-build-setup
+        
+      - name: 📦 Install LLVM
+        uses: sbwml/actions@install-llvm
+        
+      # ============================================
+      # 5. 源码准备与信息采集
+      # ============================================
+      - name: 📥 Prepare OpenWrt Source
+        run: |
+          if ! git ls-remote --heads "$REPO_URL" "$REPO_BRANCH" &>/dev/null; then
+            echo "❌ Branch $REPO_BRANCH not found in $REPO_URL"
+            git ls-remote --heads "$REPO_URL" | head -10
+            exit 1
+          fi
+          
+          echo "🔄 Cloning fresh OpenWrt source..."
+          rm -rf openwrt
+          
+          for attempt in 1 2 3; do
+            echo "📥 Clone attempt $attempt/3..."
+            if git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt; then
+              break
+            fi
+            echo "❌ Clone attempt $attempt failed"
+            rm -rf openwrt
+            if [ $attempt -lt 3 ]; then
+              sleep 10
+            else
+              echo "❌ All clone attempts failed"
+              exit 1
+            fi
+          done
+          
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
           
-          echo "COMMIT_AUTHOR=$(git show -s --format='作者: %an')" >> $GITHUB_ENV
-          echo "COMMIT_DATE=$(git show -s --format='时间: %ci')" >> $GITHUB_ENV
-          echo "COMMIT_MESSAGE=$(git show -s --format='内容: %s')" >> $GITHUB_ENV
-          echo "COMMIT_HASH=$(git show -s --format='hash: %H')" >> $GITHUB_ENV
-          echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
+          # 获取提交信息
+          COMMIT_INFO=$(git log -1 --pretty=format:'%an|%ci|%s|%H' || echo "Unknown|Unknown|Unknown|Unknown")
+          IFS='|' read -r AUTHOR DATE MESSAGE HASH <<< "$COMMIT_INFO"
           
-          latest_release=$(curl -s "https://api.github.com/repos/openwrt/openwrt/tags" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
-          if [ -z "$latest_release" ]; then
-            echo "::warning::Failed to fetch latest tag, using fallback."
-            latest_release="24.10.x"
-          fi
-          echo "latest_release=$latest_release" >> $GITHUB_ENV
-          echo "Latest release tag determined: $latest_release"
+          {
+            echo "COMMIT_AUTHOR=${AUTHOR}"
+            echo "COMMIT_DATE=${DATE}"
+            echo "COMMIT_MESSAGE=${MESSAGE}"
+            echo "COMMIT_HASH=${HASH}"
+          } >> $GITHUB_ENV
           
-      - name: Cache Downloads
+      # ============================================
+      # 6. 分层缓存
+      # ============================================
+      - name: ☁️ Cache Toolchain
+        if: github.event.inputs.force_clean != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir/toolchain-*
+            openwrt/build_dir/toolchain-*
+            openwrt/tmp/hostpkg
+          key: toolchain-${{ env.REPO_BRANCH }}-${{ hashFiles('configs/x86_64.config') }}
+          restore-keys: |
+            toolchain-${{ env.REPO_BRANCH }}-
+            
+      - name: ☁️ Cache Feeds
+        if: github.event.inputs.force_clean != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/feeds
+            openwrt/tmp/packagecache
+          key: feeds-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default') }}
+          restore-keys: |
+            feeds-${{ env.REPO_BRANCH }}-
+            
+      - name: ☁️ Cache Downloads
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: dl-${{ runner.os }}-${{ env.CACHE_VER }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
-      
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
+          key: downloads-${{ env.REPO_BRANCH }}-${{ env.CACHE_KEY }}
+          restore-keys: |
+            downloads-${{ env.REPO_BRANCH }}-
+            
+      - name: ☁️ Cache ccache
+        if: github.event.inputs.force_clean != 'true'
+        uses: actions/cache@v4
         with:
-          key: ccache-${{ runner.os }}-${{ env.CACHE_VER }}-${{ env.REPO_BRANCH }}-${{ hashFiles('main-repo/configs/**.config', 'main-repo/config-*.txt') }}
-          max-size: 5G
-          
-      - name: Install Feeds
+          path: openwrt/.ccache
+          key: ccache-${{ env.REPO_BRANCH }}-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ccache-${{ env.REPO_BRANCH }}-
+            
+      # ============================================
+      # 7. Feeds 配置
+      # ============================================
+      - name: 📚 Configure Feeds
         run: |
-          cd ${{ env.OPENWRT_PATH }}
-          if [ -f "${{ github.workspace }}/main-repo/feeds.conf.default" ]; then
-            cp ${{ github.workspace }}/main-repo/feeds.conf.default .
-          else
-            echo "::warning::feeds.conf.default not found in main-repo. Using default OpenWrt feeds."
+          cd "$OPENWRT_PATH"
+          
+          # 复制 feeds 配置
+          if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
+            cp "${{ github.workspace }}/feeds.conf.default" .
           fi
+          
+          # 清理并更新 feeds（force_clean 时强制更新）
+          if [ "${{ github.event.inputs.force_clean }}" == "true" ]; then
+            rm -rf feeds tmp/packagecache
+          fi
+          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-      - name: Load Custom Configuration & DIY Script
+      # ============================================
+      # 8. 自定义配置及插件开关
+      # ============================================
+      - name: 🎨 Apply Custom Configuration
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          ENABLE_DOCKER: ${{ github.event.inputs.docker }}
-          ENABLE_SSRP: ${{ github.event.inputs.ssrp }}
-          ENABLE_PASSWALL: ${{ github.event.inputs.passwall }}
-          ENABLE_NIKKI: ${{ github.event.inputs.nikki }}
-          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash }}
-          ENABLE_LUCKY: ${{ github.event.inputs.lucky }}
-          ENABLE_OAF: ${{ github.event.inputs.oaf }}
+          ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
+          ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
+          ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
+          ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
+          ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
+          ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
+          ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
         run: |
-          cd ${{ env.OPENWRT_PATH }}
+          cd "$OPENWRT_PATH"
           
-          cp ${{ github.workspace }}/main-repo/${{ env.CONFIG_FILE }} .config
-          [[ "$ENABLE_DOCKER"    == "true" && -f "${{ github.workspace }}/main-repo/configs/config-docker.txt" ]] && cat ${{ github.workspace }}/main-repo/configs/config-docker.txt >> .config
-          [[ "$ENABLE_SSRP"      == "true" && -f "${{ github.workspace }}/main-repo/config-ssrp.txt" ]] && cat ${{ github.workspace }}/main-repo/config-ssrp.txt >> .config
-          [[ "$ENABLE_PASSWALL"  == "true" && -f "${{ github.workspace }}/main-repo/config-passwall.txt" ]] && cat ${{ github.workspace }}/main-repo/config-passwall.txt >> .config
-          chmod +x ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
-          ${{ github.workspace }}/main-repo/${{ env.DIY_SCRIPT }}
+          # 复制自定义文件
+          if [ -d "$GITHUB_WORKSPACE/files" ]; then
+            cp -r "$GITHUB_WORKSPACE/files" ./
+          fi
           
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh
-          chmod +x ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh
-          ${{ github.workspace }}/main-repo/scripts/preset-mihimo-core.sh ${{ env.CLASH_KERNEL }}
-          ${{ github.workspace }}/main-repo/scripts/preset-adguard-core.sh ${{ env.CLASH_KERNEL }}
+          # 复制配置文件
+          cp "${{ github.workspace }}/$CONFIG_FILE" .config
+          
+          # 执行自定义脚本
+          if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
+            chmod +x "${{ github.workspace }}/$DIY_SCRIPT"
+            "${{ github.workspace }}/$DIY_SCRIPT"
+          fi
+          
+          # 根据用户选择执行核心下载脚本
+          if [ "$ENABLE_OPENCLASH" = "y" ]; then
+            "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
+          fi
+          
+          # AdGuard 核心通常用于多个插件
+          if [ "$ENABLE_SSRP" = "y" ] || [ "$ENABLE_PASSWALL" = "y" ]; then
+            "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
+          fi
+          # 生成配置
           make defconfig
           
-          DEVICE_TARGET=$(grep -E "^CONFIG_TARGET_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r 's/CONFIG_TARGET_(.*)=y/\1/' | sed -r 's/(_[a-zA-Z0-9_]+)$//')
-          DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_]+=" .config | grep -E "=y$" | head -n1 | sed -r "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/")
-          echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-          echo "IP_ADDR=${LAN}" >> $GITHUB_ENV
+          # 提取目标信息
+          DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config)
+          DEVICE_SUBTARGET=$(awk -F'"' '/^CONFIG_TARGET_SUBTARGET=/{print $2}' .config)
           
-      - name: Download packages
+          # 获取最新版本（带错误处理）
+          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | \
+            grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//') || echo "unknown"
+            
+          {
+            echo "DEVICE_TARGET=$DEVICE_TARGET"
+            echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
+            echo "LATEST_RELEASE=$LATEST_RELEASE"
+          } >> $GITHUB_ENV
+          echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
+          echo "📌 Latest Release: $LATEST_RELEASE"
+          
+      # ============================================
+      # 9. 强制清理（修复逻辑）
+      # ============================================
+      - name: 🧹 Clean Build Directory
+        if: github.event.inputs.force_clean == 'true'
         run: |
-          cd ${{ env.OPENWRT_PATH }}
-          make download -j$(nproc)
+          cd "$OPENWRT_PATH"
+          echo "🧹 Force cleaning build directory..."
           
-      - name: Compile Firmware
+          # 保存配置文件
+          cp .config .config.bak
+          
+          # 清理构建目录
+          make dirclean
+          
+          # 恢复配置文件
+          cp .config.bak .config
+          rm .config.bak
+          
+          # 重新生成配置
+          make defconfig
+          
+      # ============================================
+      # 10. 下载依赖包
+      # ============================================
+      - name: 📥 Download Packages
+        run: |
+          cd "$OPENWRT_PATH"
+          echo "📥 Starting package download..."
+          
+          # 使用合理的并行数
+          DOWNLOAD_JOBS=$((COMPILE_JOBS < 8 ? COMPILE_JOBS : 8))
+          
+          if make download -j"$DOWNLOAD_JOBS" 2>&1 | tee download.log; then
+            echo "✅ Download completed successfully"
+          else
+            echo "⚠️ Download had issues, cleaning and retrying..."
+            find dl -size -1024c -delete 2>/dev/null || true
+            
+            if make download -j1 2>&1 | tee download_retry.log; then
+              echo "✅ Retry download successful"
+            else
+              echo "❌ Download failed, but continuing with compilation..."
+              tail -n 20 download_retry.log || true
+            fi
+          fi
+          
+          echo "📊 Downloaded packages: $(find dl -type f | wc -l)"
+          
+      # ============================================
+      # 11. 编译固件
+      # ============================================
+      - name: 🔨 Compile Firmware
         id: compile
+        timeout-minutes: 600
         run: |
-          cd ${{ env.OPENWRT_PATH }}
-          echo -e "Starting compile with $(nproc) threads"
-          make -j$(nproc) || make -j1 || make -j1 V=s
-          echo "status=success" >> $GITHUB_OUTPUT
-          echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-          echo "KERNEL=$(cat bin/targets/*/*/openwrt-*.manifest | grep '^kernel' | head -n1 | awk '{print $3}' | awk -F- '{print $2}')" >> $GITHUB_ENV
-     
-      - name: Check space usage
-        if: always()
-        run: df -hT
-        
-      - name: Organise files
+          cd "$OPENWRT_PATH"
+          export USE_CCACHE=1
+          export CCACHE_DIR="$PWD/.ccache"
+          ccache -M 5G
+          
+          echo "🔨 Starting compilation with $COMPILE_JOBS jobs..."
+          
+          compile_with_jobs() {
+            local jobs=$1
+            local log_file="compile_j${jobs}.log"
+            echo "🔧 Compiling with $jobs jobs..."
+            
+            if timeout 500m make -j"$jobs" 2>&1 | tee "$log_file"; then
+              echo "✅ Compilation successful with $jobs jobs"
+              return 0
+            else
+              echo "❌ Compilation failed with $jobs jobs"
+              return 1
+            fi
+          }
+          
+          # 尝试编译（逐步降低并行度）
+          if compile_with_jobs "$COMPILE_JOBS"; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          elif [ "$COMPILE_JOBS" -gt 2 ] && compile_with_jobs $((COMPILE_JOBS/2)); then
+            echo "status=success" >> $GITHUB_OUTPUT
+          elif [ "$COMPILE_JOBS" -gt 1 ] && compile_with_jobs 1; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ All compilation attempts failed"
+            echo "=== Build Error Analysis ==="
+            if [ -f "compile_j1.log" ]; then
+              echo "Last 100 lines of single-threaded build:"
+              tail -n 100 compile_j1.log
+            fi
+            echo "=== Recent package logs ==="
+            find logs -name "*.log" -mtime -1 -exec echo "=== {} ===" \; -exec tail -n 30 {} \; 2>/dev/null | head -500
+            exit 1
+          fi
+          
+          echo "=== ccache Statistics ==="
+          ccache -s
+          
+      # ============================================
+      # 12. 整理固件文件
+      # ============================================
+      - name: 📦 Organize Firmware
         if: steps.compile.outputs.status == 'success'
+        id: organize
         run: |
-          cd ${{ env.OPENWRT_PATH }}/bin/targets/*/*
-          rm -f sha256sums packages*
-          cp ${{ env.OPENWRT_PATH }}/.config build.config
+          cd "$OPENWRT_PATH/bin/targets"/*/*
+          echo "=== Generated Files ==="
+          ls -lah
+          
+          # 安全提取内核版本
+          KERNEL_VERSION="unknown"
+          if [ -f *.manifest ]; then
+            KERNEL_VERSION=$(grep "^kernel " *.manifest | head -1 | awk '{print $3}' | cut -d- -f1-2) || KERNEL_VERSION="unknown"
+          fi
+          
+          # 复制配置文件
+          cp "$OPENWRT_PATH/.config" build.config
+          
+          # 打包内核模块
+          if [ -d packages ]; then
+            tar -czf kernel-modules.tar.gz packages/
+            rm -rf packages
+          fi
+          
+          # 清理不需要的文件
+          rm -f feeds.buildinfo version.buildinfo *.manifest
+          
+          # 生成固件信息
+          cat > firmware_info.json <<EOF
+          {
+            "build_date": "$BUILD_DATE",
+            "build_version": "$BUILD_VERSION", 
+            "build_id": "$BUILD_ID",
+            "kernel_version": "$KERNEL_VERSION",
+            "target": "$DEVICE_TARGET",
+            "subtarget": "$DEVICE_SUBTARGET",
+            "lan_address": "${{ github.event.inputs.lan_addr }}",
+            "commit_hash": "$COMMIT_HASH",
+            "plugins": {
+              "docker": ${{ github.event.inputs.docker }},
+              "ssrp": ${{ github.event.inputs.ssrp }},
+              "passwall": ${{ github.event.inputs.passwall }},
+              "openclash": ${{ github.event.inputs.openclash }},
+              "nikki": ${{ github.event.inputs.nikki }},
+              "lucky": ${{ github.event.inputs.lucky }},
+              "oaf": ${{ github.event.inputs.oaf }}
+            }
+          }
+          EOF
+          
+          # 输出结果
+          {
+            echo "firmware_path=$PWD"
+            echo "kernel_version=$KERNEL_VERSION"
+          } >> $GITHUB_OUTPUT
+          
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
           
-      - name: Upload Bin Directory (optional)
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      # ============================================
+      # 13. 上传 Artifacts
+      # ============================================
+      - name: 📤 Upload Artifacts
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-bin-${{ env.FILE_DATE }}
-          path: ${{ env.OPENWRT_PATH }}/bin
-          
-      - name: Upload Firmware to Artifact
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-firmware-${{ env.FILE_DATE }}
+          name: OpenWrt-${{ env.DEVICE_TARGET }}-${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE_PATH }}
+          retention-days: 30
+          compression-level: 6
           
-      - name: Upload Firmware to Release
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
+      # ============================================
+      # 14. 创建 Release
+      # ============================================
+      - name: 🚀 Create Release
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
         uses: ncipollo/release-action@v1.14.0
         with:
-          name: Release ${{ env.FILE_DATE }}
+          name: ${{ env.FILE_DATE }} • ${{ env.FIRMWARE_TAG }} • ${{ env.LATEST_RELEASE }}
+          allowUpdates: true
           tag: ${{ env.FIRMWARE_TAG }}-${{ env.FILE_DATE }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          allowUpdates: true
           artifacts: ${{ env.FIRMWARE_PATH }}/*
           body: |
-            **This is OpenWrt Firmware built by GitHub Actions**
-            ### 📒 Firmware Information
-            - 💻 **Architecture:** `${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}`
-            - 🌐 **Default IP:** `${{ env.IP_ADDR }}`
-            - 🔑 **Default Password:** `${{ github.event.inputs.root_password }}`
-            - 🚀 **Kernel Version:** `${{ env.KERNEL }}`
+            ## 🎯 OpenWrt Firmware [${{ env.BUILD_ID }}]
             
-            ### 🧊 Source Code Version
-            - **Source:** `${{ env.REPO_URL }}` (Branch: `${{ env.REPO_BRANCH }}`)
-            - **Latest Commit:**
-              - `${{ env.COMMIT_AUTHOR }}`
-              - `${{ env.COMMIT_DATE }}`
-              - `${{ env.COMMIT_MESSAGE }}`
-              - `${{ env.COMMIT_HASH }}`
+            ### 📊 构建信息
+            | 项目 | 信息 |
+            |------|------|
+            | **版本** | `${{ env.LATEST_RELEASE }}` |
+            | **日期** | `${{ env.BUILD_DATE }}` |
+            | **目标** | `${{ env.DEVICE_TARGET }}_${{ env.DEVICE_SUBTARGET }}` |
+            | **内核** | `${{ steps.organize.outputs.kernel_version }}` |
+            | **LAN IP** | `${{ github.event.inputs.lan_addr }}` |
+            | **密码** | `********` |
+            
+            ### 📦 包含的插件
+            | 插件 | 状态 |
+            |------|------|
+            | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | Lucky | ${{ github.event.inputs.lucky == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenAppFilter | ${{ github.event.inputs.oaf == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            
+            ### 📝 源码信息
+            - **仓库**: ${{ env.REPO_URL }} [<sup>1</sup>](${{ env.REPO_URL }})
+            - **分支**: `${{ env.REPO_BRANCH }}`
+            - **提交**: `${{ env.COMMIT_HASH }}` [<sup>2</sup>](${{ env.REPO_URL }}/commit/${{ env.COMMIT_HASH }})
+            - **作者**: ${{ env.COMMIT_AUTHOR }}
+            - **时间**: ${{ env.COMMIT_DATE }}
+            - **消息**: ${{ env.COMMIT_MESSAGE }}
+            
+            ### 📥 安装说明
+            
+            #### x86/64 UEFI 固件：
+            ```bash
+            # 解压固件
+            gunzip openwrt-*-generic-ext4-combined-efi.img.gz
+            
+            # 写入设备（请替换 sdX 为实际设备）
+            dd if=openwrt-*-generic-ext4-combined-efi.img of=/dev/sdX bs=4M status=progress
+            sync
