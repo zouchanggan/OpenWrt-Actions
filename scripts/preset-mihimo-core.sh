@@ -4,7 +4,8 @@ mkdir -p files/etc/openclash/core
 mkdir -p files/etc/config
 
 # CLASH_META_URL="https://github.com/vernesong/mihomo/releases/download/Prerelease-Alpha/mihomo-linux-amd64-alpha-smart-5bc3f7d.gz"
-CLASH_META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/smart/clash-linux-amd64.tar.gz"
+# CLASH_META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/smart/clash-linux-amd64.tar.gz"
+CLASH_META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/smart/clash-linux-${1}.tar.gz"
 GEOIP_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEOSITE_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 MODEL_URL="https://github.com/vernesong/mihomo/releases/download/LightGBM-Model/model-large.bin"
