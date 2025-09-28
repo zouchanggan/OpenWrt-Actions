@@ -299,27 +299,23 @@ jobs:
           
           # 复制自定义文件
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
-            cp -r "$GITHUB_WORKSPACE/files" ./
+            mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
           fi
           
           # 复制配置文件
           cp "${{ github.workspace }}/$CONFIG_FILE" .config
           
           # 执行自定义脚本
+          if [ -d "${{ github.workspace }}/scripts" ]; then
+            find "${{ github.workspace }}/scripts" -name "*.sh" -exec chmod +x {} \;
+          fi
           if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
             chmod +x "${{ github.workspace }}/$DIY_SCRIPT"
             "${{ github.workspace }}/$DIY_SCRIPT"
           fi
+          "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
+          "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
           
-          # 根据用户选择执行核心下载脚本
-          if [ "$ENABLE_OPENCLASH" = "y" ]; then
-            "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
-          fi
-          
-          # AdGuard 核心通常用于多个插件
-          if [ "$ENABLE_SSRP" = "y" ] || [ "$ENABLE_PASSWALL" = "y" ]; then
-            "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
-          fi
           # 生成配置
           make defconfig
           
