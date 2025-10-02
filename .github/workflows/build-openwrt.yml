@@ -212,15 +212,6 @@ jobs:
       # ============================================
       # 6. 稳定缓存策略 修复缓存键冲突问题
       # ============================================
-      - name: 🔧 Setup ccache
-        run: |
-          # 设置更大的缓存
-          export CCACHE_MAXSIZE=2G
-          export CCACHE_DIR="$PWD/.ccache"
-    
-         # 显示配置
-          echo "📋 ccache configuration:"
-          ccache --show-config || ccache -p
       - name: ☁️ Cache Toolchain
         if: github.event.inputs.force_clean != 'true'
         uses: actions/cache@v4
@@ -299,7 +290,7 @@ jobs:
       # ============================================
       # 8. ccache 配置（简化安全版本）
       # ============================================
-      - name: 🔥 Prepare ccache
+      - name: 🔧 Setup ccache
         run: |
           cd "$OPENWRT_PATH"
           
@@ -319,6 +310,11 @@ jobs:
           ccache --set-config=max_files=150000
           ccache --set-config=sloppiness=file_macro,locale,time_macros  # 🚀 提升命中率
           ccache --set-config=hash_dir=false  # 🔥 提升性能
+          # 📊 显示配置和初始状态
+          echo "📋 ccache configuration:"
+          ccache --show-config 2>/dev/null || ccache -p 2>/dev/null || echo "ccache config not available"
+          echo "📊 Initial ccache statistics:"
+          ccache -s 2>/dev/null || echo "ccache initializing..."
       # 9. 自定义配置及插件开关
       # ============================================
       - name: 🎨 Apply Custom Configuration
@@ -423,33 +419,30 @@ jobs:
       # ============================================
       # 12. 编译固件
       # ============================================
-      - name: 🔨 Compile Firmware  
+      - name: 🔨 Compile Firmware
+        id: compile  # ✅ 添加ID
         timeout-minutes: 600
         run: |
           cd "$OPENWRT_PATH"
-    
           # 🎯 核心ccache设置
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
-    
-          # 🔍 可选：确保ccache启用(如果config中没有的话)
           export CONFIG_CCACHE=y
-    
           # 📊 编译前检查
           echo "🔨 Starting compilation with $(nproc) cores..."
           echo "💾 Memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
           echo "📊 ccache stats (before compilation):"
           ccache -s
-    
           # 🎯 经典三段式编译
           make -j$(nproc) || make -j1 || make -j1 V=s
-    
-          # 编译后统计  
+          # ✅ 设置编译成功状态
+          echo "status=success" >> $GITHUB_OUTPUT
+          # 📊 编译后统计
           echo "✅ Compilation completed"
           echo "📊 ccache stats (after):"
           ccache -s
           echo "🗂️ Cache size: $(du -sh ${CCACHE_DIR} 2>/dev/null || echo 'unknown')"
-          # 📦 输出检查
+          echo "📦 Build outputs:"
           ls -la bin/targets/*/* 2>/dev/null || echo "No output files found"
       - name: 📊 Cache Statistics
         if: always()
