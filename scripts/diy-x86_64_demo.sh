@@ -3,7 +3,7 @@
 # 配置参数
 # =====================
 # 脚本URL
-export mirror=https://raw.githubusercontent.com/grandway2025/OpenWrt-Actions/main
+export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
 # GitHub镜像
 export github="github.com"
