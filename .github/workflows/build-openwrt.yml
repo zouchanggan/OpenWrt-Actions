@@ -212,6 +212,9 @@ jobs:
           
           if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
             cp "${{ github.workspace }}/feeds.conf.default" .
+            echo "📄 Using custom feeds.conf.default"
+          else
+            echo "::warning::feeds.conf.default not found, using upstream defaults."
           fi
           
           ./scripts/feeds update -a
@@ -269,10 +272,10 @@ jobs:
           
           # 编译工具链
           echo "🔨 编译 tools..."
-          make tools/compile -j$(nproc) V=s || make tools/compile -j1 V=s
+          make tools/compile -j$(nproc) || make tools/compile -j1 V=s
           
           echo "🔨 编译 toolchain..."
-          make toolchain/compile -j$(nproc) V=s || make toolchain/compile -j1 V=s
+          make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
           
           echo "✅ 工具链编译完成"
           echo "ready=true" >> $GITHUB_OUTPUT
