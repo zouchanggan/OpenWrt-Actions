@@ -299,10 +299,10 @@ jobs:
       # ============================================
       # 环境准备
       # ============================================
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
       - name: 🧹 释放磁盘空间
         uses: sbwml/actions@free-disk
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
       - name: 🛠️ 构建系统设置
         uses: sbwml/actions@openwrt-build-setup
       - name: 📦 安装 LLVM
