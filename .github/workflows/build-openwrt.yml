@@ -236,7 +236,12 @@ jobs:
         run: |
           cd "$OPENWRT_PATH"
           
-          # 复制配置文件
+          # 复制自定义文件
+          if [ -d "$GITHUB_WORKSPACE/files" ]; then
+            cp -r "$GITHUB_WORKSPACE/files" .
+          fi
+          
+          # 应用配置文件
           cp "${{ github.workspace }}/$CONFIG_FILE" .config
           
           # 执行自定义脚本
@@ -245,7 +250,15 @@ jobs:
             "${{ github.workspace }}/$DIY_SCRIPT"
           fi
           
-          # 生成配置
+          # 执行预设脚本
+          for script in preset-mihimo-core.sh preset-adguard-core.sh; do
+            if [ -f "${{ github.workspace }}/scripts/$script" ]; then
+              chmod +x "${{ github.workspace }}/scripts/$script"
+              "${{ github.workspace }}/scripts/$script" "$CLASH_KERNEL"
+            fi
+          done
+          
+          # 生成最终配置
           make defconfig
           
           # 提取目标信息
@@ -290,7 +303,7 @@ jobs:
       needs.pre-check.outputs.should_build == 'true' && 
       (needs.prepare-toolchain.result == 'success' || needs.prepare-toolchain.result == 'skipped')
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 400
     outputs:
       firmware_path: ${{ steps.organize.outputs.firmware_path }}
       kernel_version: ${{ steps.organize.outputs.kernel_version }}
