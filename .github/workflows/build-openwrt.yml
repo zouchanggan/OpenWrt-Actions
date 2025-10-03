@@ -290,7 +290,7 @@ jobs:
       needs.pre-check.outputs.should_build == 'true' && 
       (needs.prepare-toolchain.result == 'success' || needs.prepare-toolchain.result == 'skipped')
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     outputs:
       firmware_path: ${{ steps.organize.outputs.firmware_path }}
       kernel_version: ${{ steps.organize.outputs.kernel_version }}
@@ -617,7 +617,7 @@ jobs:
       # ============================================
       - name: 🔨 智能编译固件
         id: compile
-        timeout-minutes: 240
+        timeout-minutes: 360
         run: |
           cd "$OPENWRT_PATH"
           
