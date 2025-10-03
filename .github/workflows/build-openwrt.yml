@@ -1,7 +1,7 @@
 # 🚀 OpenWrt 编译最优方案 - 完整版
 # 解决首次编译超时 + 提升缓存命中率至75%+
 # Author: 优化版本 v2.0
-name: 🚀 Build OpenWrt (x86_64)
+name: 💻 Build OpenWrt (x86_64)
 permissions:
   contents: write
   actions: read
