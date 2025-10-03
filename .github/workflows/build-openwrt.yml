@@ -617,7 +617,7 @@ jobs:
       # ============================================
       - name: 🔨 智能编译固件
         id: compile
-        timeout-minutes: ${{ needs.pre-check.outputs.compile_strategy == 'staged' && '200' || '320' }}
+        timeout-minutes: 240
         run: |
           cd "$OPENWRT_PATH"
           
