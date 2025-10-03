@@ -290,7 +290,7 @@ jobs:
       needs.pre-check.outputs.should_build == 'true' && 
       (needs.prepare-toolchain.result == 'success' || needs.prepare-toolchain.result == 'skipped')
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ needs.pre-check.outputs.compile_strategy == 'staged' && '240' || '360' }}
+    timeout-minutes: 240
     outputs:
       firmware_path: ${{ steps.organize.outputs.firmware_path }}
       kernel_version: ${{ steps.organize.outputs.kernel_version }}
@@ -406,6 +406,9 @@ jobs:
           
           if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
             cp "${{ github.workspace }}/feeds.conf.default" .
+            echo "📄 Using custom feeds.conf.default"
+          else
+            echo "::warning::feeds.conf.default not found, using upstream defaults."
           fi
           
           echo "🔄 更新 feeds..."
