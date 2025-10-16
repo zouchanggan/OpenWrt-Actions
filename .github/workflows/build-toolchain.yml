@@ -1,0 +1,118 @@
+name: 🔧 Build & Publish Toolchain (Optimized)
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "目标平台 (用逗号分隔)"
+        default: "x86_64"
+        required: true
+        type: string
+  schedule:
+    - cron: '0 2 * * 0' # 每周日自动构建
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-24.10
+  TZ: Asia/Shanghai
+  RELEASE_TAG: toolchain-${{ vars.REPO_BRANCH || 'openwrt-24.10' }} # 使用统一的 Release Tag
+
+jobs:
+  build-toolchain:
+    name: 🔧 Build ${{ matrix.target }} Toolchain
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(format('["{0}"]', join(fromJson(format('["{0}"]', github.event.inputs.targets || 'x86_64')), '","'))) }}
+    
+    steps:
+      - name: 📥 Clone OpenWrt Source
+        run: |
+          git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          echo "SOURCE_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          
+      - name: 🔍 Check if Toolchain Exists Already (Efficiency Boost)
+        id: check_exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TOOLCHAIN_FILENAME="toolchain-${{ matrix.target }}-${{ env.SOURCE_HASH }}.tar.gz"
+          echo "Checking for existing artifact: $TOOLCHAIN_FILENAME"
+          
+          # 使用 gh cli 检查文件是否存在于 Release 中
+          if gh release view ${{ env.RELEASE_TAG }} --json assets --jq ".assets[].name | select(. == \"$TOOLCHAIN_FILENAME\")" | grep -q "$TOOLCHAIN_FILENAME"; then
+            echo "✅ Toolchain for hash ${{ env.SOURCE_HASH }} already exists. Skipping build."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️ Toolchain not found. Proceeding with build."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔧 Setup Build Environment
+        if: steps.check_exists.outputs.skip == 'false'
+        run: |
+          sudo timedatectl set-timezone "$TZ"
+          echo "BUILD_DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+          
+      - name: 🧹 Free Disk Space
+        if: steps.check_exists.outputs.skip == 'false'
+        uses: sbwml/actions@free-disk
+        
+      - name: 🛠️ Build System Setup
+        if: steps.check_exists.outputs.skip == 'false'
+        uses: sbwml/actions@openwrt-build-setup
+        
+      - name: 📚 Configure Feeds
+        if: steps.check_exists.outputs.skip == 'false'
+        run: |
+          cd "$OPENWRT_PATH"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+      - name: ⚙️ Configure Target
+        if: steps.check_exists.outputs.skip == 'false'
+        run: |
+          cd "$OPENWRT_PATH"
+          echo "CONFIG_TARGET_${{ matrix.target == 'x86_64' && 'x86=y\nCONFIG_TARGET_x86_64=y' || 'rockchip=y\nCONFIG_TARGET_rockchip_armv8=y' }}" > .config
+          make defconfig
+          
+      - name: 🔨 Build Toolchain
+        if: steps.check_exists.outputs.skip == 'false'
+        run: |
+          cd "$OPENWRT_PATH"
+          make -j$(nproc) tools/install
+          make -j$(nproc) toolchain/install
+          
+      - name: 📦 Package Toolchain
+        if: steps.check_exists.outputs.skip == 'false'
+        id: package
+        run: |
+          cd "$OPENWRT_PATH"
+          ARTIFACT_NAME="toolchain-${{ matrix.target }}-${{ env.SOURCE_HASH }}.tar.gz"
+          tar -czf "../$ARTIFACT_NAME" staging_dir/toolchain-* build_dir/toolchain-*
+          echo "artifact_path=../$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          
+          # 🚀 为 x86_64 创建一个 'latest' 副本
+          if [ "${{ matrix.target }}" = "x86_64" ]; then
+            LATEST_NAME="toolchain-${{ matrix.target }}-latest.tar.gz"
+            cp "../$ARTIFACT_NAME" "../$LATEST_NAME"
+            echo "latest_artifact_path=../$LATEST_NAME" >> $GITHUB_OUTPUT
+            echo "latest_artifact_name=$LATEST_NAME" >> $GITHUB_OUTPUT
+            echo "📦 Created 'latest' tag for x86_64"
+          fi
+
+      - name: 🚀 Upload Toolchain to Release
+        if: steps.check_exists.outputs.skip == 'false'
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          name: Toolchain | ${{ env.REPO_BRANCH }} | Updated ${{ env.BUILD_DATE }}
+          allowUpdates: true
+          tag: ${{ env.RELEASE_TAG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 同时上传带哈希的版本和 'latest' 版本
+          artifacts: |
+            ${{ steps.package.outputs.artifact_path }}
+            ${{ steps.package.outputs.latest_artifact_path }}
