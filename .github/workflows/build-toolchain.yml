@@ -25,14 +25,7 @@ jobs:
       matrix:
         target: ${{ fromJson(format('["{0}"]', join(fromJson(format('["{0}"]', github.event.inputs.targets || 'x86_64')), '","'))) }}
     
-    steps:
-      - name: 📥 Clone OpenWrt Source
-        run: |
-          git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
-          cd openwrt
-          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-          echo "SOURCE_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          
+    steps:  
       - name: 🔍 Check if Toolchain Exists Already (Efficiency Boost)
         id: check_exists
         env:
@@ -64,6 +57,17 @@ jobs:
         if: steps.check_exists.outputs.skip == 'false'
         uses: sbwml/actions@openwrt-build-setup
         
+      - name: 📦 Install LLVM
+        if: steps.check_exists.outputs.skip == 'false'
+        uses: sbwml/actions@install-llvm
+        
+      - name: 📥 Clone OpenWrt Source
+        run: |
+          git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          echo "SOURCE_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          
       - name: 📚 Configure Feeds
         if: steps.check_exists.outputs.skip == 'false'
         run: |
