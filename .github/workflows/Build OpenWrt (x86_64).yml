@@ -47,10 +47,6 @@ on:
         description: "🔧 使用预编译工具链 (推荐)"
         type: boolean
         default: true
-      force_clean:
-        description: "🧹 强制清理构建目录"
-        type: boolean
-        default: false
 
 env:
   REPO_URL: https://github.com/openwrt/openwrt
