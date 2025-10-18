@@ -220,7 +220,7 @@ jobs:
           path: |
             openwrt/staging_dir/toolchain-*
             openwrt/build_dir/toolchain-*
-          key: toolchain-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v6
+          key: toolchain-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v7  # 🔥 版本号统一升级
           restore-keys: |
             toolchain-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-
             toolchain-${{ env.REPO_BRANCH }}-
@@ -231,7 +231,7 @@ jobs:
           path: |
             openwrt/staging_dir/host*
             openwrt/staging_dir/hostpkg
-          key: staging-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v4  # 版本号+1
+          key: staging-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v5  # 🔥 版本号升级
           restore-keys: |
             staging-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-
             staging-${{ env.REPO_BRANCH }}-
@@ -241,7 +241,7 @@ jobs:
         with:
           path: |
             openwrt/build_dir/host*
-          key: buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v4  # 版本号+1
+          key: buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v5  # 🔥 版本号升级
           restore-keys: |
             buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             buildhost-${{ env.REPO_BRANCH }}-
@@ -250,7 +250,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: downloads-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-v5
+          key: downloads-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-v6  # 🔥 版本号升级
           restore-keys: |
             downloads-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             downloads-${{ env.REPO_BRANCH }}-
@@ -260,7 +260,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/.ccache
-          key: ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v6
+          key: ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v7  # 🔥 版本号升级
           restore-keys: |
             ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             ccache-${{ env.REPO_BRANCH }}-
@@ -301,18 +301,16 @@ jobs:
           
           mkdir -p "$CCACHE_DIR"
           
-          # 基本的安全配置
-          ccache -M 10G
-          ccache -F 100000
+          # 🔥 更激进的ccache配置
+          ccache -M 15G  # 增加到15G
+          ccache -F 150000  # 增加文件数
           
-          # 只设置确定支持的选项
-          ccache --set-config=compression=true 2>/dev/null || true
-          ccache --set-config=stats=true 2>/dev/null || true
-          ccache --set-config=max_files=100000 2>/dev/null || true
-          
-          echo "=== ccache configuration ==="
-          ccache -p 2>/dev/null || echo "ccache info not available"
-          ccache -s 2>/dev/null || echo "ccache stats not available"
+          # 优化设置
+          ccache --set-config=compression=true
+          ccache --set-config=stats=true
+          ccache --set-config=max_files=150000
+          ccache --set-config=sloppiness=file_macro,locale,time_macros  # 🔥 新增
+          ccache --set-config=hash_dir=false  # 🔥 提升性能
           echo "=========================="
       # 9. 自定义配置及插件开关
       # ============================================
@@ -428,6 +426,10 @@ jobs:
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
+
+          # 🔥 额外的编译优化
+          export FORCE_UNSAFE_CONFIGURE=1
+          export CONFIG_CCACHE=y
           
           echo "🔨 Starting compilation with $COMPILE_JOBS jobs..."
           echo "=== ccache initial stats ==="
