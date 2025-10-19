@@ -1,16 +1,20 @@
+# =================================================
 # Author: P3TERX (Modified and Optimized)
-# Optimized caching to improve cache hit rate and reduce build time
-#=================================================
-name: 💻 X86_64
+# GitHub: https://github.com/P3TERX/Actions-OpenWrt
+# =================================================
+
+name: 💻 x86_64
+
 permissions:
   contents: write
   actions: read
+
 on:
   workflow_dispatch:
     inputs:
       lan_addr:
         description: "📍 默认 LAN 地址"
-        default: "192.168.1.200"
+        default: "192.168.1.10"
         required: true
         type: string
       root_password:
@@ -50,6 +54,7 @@ on:
         description: "🧹 强制清理缓存"
         type: boolean
         default: false
+
 env:
   REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
@@ -62,65 +67,82 @@ env:
   FIRMWARE_TAG: X86_64
   TZ: Asia/Shanghai
   DEBIAN_FRONTEND: noninteractive
+
 concurrency:
-  group: build-${{ github }}-${{ github.event.inputs.lan_addr }}
+  group: build-${{ github.ref }}-${{ github.event.inputs.lan_addr }}
   cancel-in-progress: false
+
 jobs:
   build:
     name: 🏗️ Build OpenWrt
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04 # 建议使用 LTS 版本以获得更好的稳定性
     timeout-minutes: 720
     outputs:
       firmware_path: ${{ steps.organize.outputs.firmware_path }}
       kernel_version: ${{ steps.organize.outputs.kernel_version }}
+
     steps:
+      # ============================================
+      # 1. 环境初始化
+      # ============================================
       - name: 🔧 Setup Environment
         id: env
         run: |
+          # 时区与 Git 基本配置
           sudo timedatectl set-timezone "$TZ"
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
+          
+          # 构建信息
           VERSION=$(date +'%Y.%m.%d')
           DATE=$(date +'%Y-%m-%d %H:%M:%S')
           BUILD_ID="${{ github.run_number }}-${GITHUB_SHA::7}"
           FILE_DATE=$(date +'%Y.%m.%d-%H%M')
-
-          PROC_COUNTnproc)
+          
+          # 自动并行计算
+          PROC_COUNT=$(nproc)
           MEM_GB=$(($(free -m | awk '/^Mem:/{print $2}') / 1024))
           JOBS=$((MEM_GB / 2))
           JOBS=$((JOBS > PROC_COUNT ? PROC_COUNT : JOBS))
           JOBS=$((JOBS < 1 ? 1 : JOBS))
-
+          
+          # 基于插件组合生成简化的缓存键
           PLUGINS_KEY="${{ github.event.inputs.docker }}-${{ github.event.inputs.ssrp }}-${{ github.event.inputs.passwall }}-${{ github.event.inputs.nikki }}-${{ github.event.inputs.openclash }}-${{ github.event.inputs.lucky }}-${{ github.event.inputs.oaf }}"
           PLUGINS_HASH=$(echo "$PLUGINS_KEY" | sha256sum | cut -c1-8)
-
+          
+          # 周次键（用于定期刷新缓存）
           WEEK_KEY=$(date +'%Y%U')
-
+          
+          # 显示系统信息
           echo "====================================="
           echo "📊 System Information"
           echo "====================================="
           echo "CPU: $(lscpu | grep 'Model name' | cut -d':' -f2 | xargs)"
-          echo "Cores: $PROC_COUNT | Memory: ${MEM_GB}GB | Jobs $JOBS"
+          echo "Cores: $PROC_COUNT | Memory: ${MEM_GB}GB | Jobs: $JOBS"
           echo "OS: $(lsb_release -ds) | Kernel: $(uname -r)"
           echo "Build: $VERSION ($BUILD_ID)"
           echo "Plugins: $PLUGINS_KEY"
           echo "Cache Hash: $PLUGINS_HASH"
           echo "Week: $WEEK_KEY"
           echo "====================================="
-
+          
+          # 导出环境变量
           {
-            echo "BUILD_VERSION=$VERSION
+            echo "BUILD_VERSION=$VERSION"
             echo "BUILD_DATE=$DATE"
             echo "BUILD_ID=$BUILD_ID"
             echo "FILE_DATE=$FILE_DATE"
             echo "COMPILE_JOBS=$JOBS"
             echo "PLUGINS_HASH=$PLUGINS_HASH"
-            echo "WEEK_KEY=$WEEK_KEY          } >> $GITHUB_ENV
+            echo "WEEK_KEY=$WEEK_KEY"
+          } >> $GITHUB_ENV
 
+      # ============================================
+      # 2. 系统优化
+      # ============================================
       - name: 🧹 Free Disk Space
-        uses: sbml/actions@free-disk
-
+        uses: sbwml/actions@free-disk
+        
       - name: 💾 Setup Swap & Memory Optimization
         run: |
           sudo fallocate -l 8G /swapfile
@@ -134,19 +156,29 @@ jobs:
           vm.dirty_background_ratio=5
           EOF
           sudo sysctl -p
+          echo "Memory status:"
           free -h
 
+      # ============================================
+      # 3. 代码检出
+      # ============================================
       - name: ✅ Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
+      # ============================================
+      # 4. 构建依赖安装
+      # ============================================
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
-
+        
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
 
+      # ============================================
+      # 5. 源码准备与信息采集
+      # ============================================
       - name: 📥 Prepare OpenWrt Source
         run: |
           if ! git ls-remote --heads "$REPO_URL" "$REPO_BRANCH" &>/dev/null; then
@@ -154,10 +186,10 @@ jobs:
             git ls-remote --heads "$REPO_URL" | head -10
             exit 1
           fi
-
+          
           echo "🔄 Cloning fresh OpenWrt source..."
           rm -rf openwrt
-
+          
           for attempt in 1 2 3; do
             echo "📥 Clone attempt $attempt/3..."
             if git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt; then
@@ -166,23 +198,24 @@ jobs:
             echo "❌ Clone attempt $attempt failed"
             rm -rf openwrt
             if [ $attempt -lt 3 ]; then
-              sleep10
+              sleep 10
             else
               echo "❌ All clone attempts failed"
               exit 1
             fi
           done
-
+          
           cd openwrt
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-
+          
+          # 获取提交信息
           if git log -1 --pretty=format:'%an|%ci|%s|%H' &>/dev/null; then
             COMMIT_INFO=$(git log -1 --pretty=format:'%an|%ci|%s|%H')
             IFS='|' read -r AUTHOR DATE MESSAGE HASH <<< "$COMMIT_INFO"
           else
             AUTHOR="Unknown"; DATE="Unknown"; MESSAGE="Unknown"; HASH="Unknown"
           fi
-
+          
           {
             echo "COMMIT_AUTHOR=${AUTHOR}"
             echo "COMMIT_DATE=${DATE}"
@@ -190,10 +223,9 @@ jobs:
             echo "COMMIT_HASH=${HASH}"
           } >> $GITHUB_ENV
 
-      # Optimized caching to increase hit rate & reduce cache misses:
-      #  - Added PLUGINS_HASH and WEEK_KEY to keys for stability and granularity.
-      #  - Split caches by logical groups with strict and fallback restore keys.
-      #  - Conditional caching disabled on force_clean.
+      # ============================================
+      # 6. 稳定缓存策略
+      # ============================================
       - name: ☁️ Cache Toolchain
         if: github.event.inputs.force_clean != 'true'
         uses: actions/cache@v4
@@ -201,10 +233,9 @@ jobs:
           path: |
             openwrt/staging_dir/toolchain-*
             openwrt/build_dir/toolchain-*
-          key: toolchain-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v7
+          key: toolchain-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v6
           restore-keys: |
-            toolchain-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-
-            toolchain-${{ env.REPO_BRANCH }}-${{ env.PLINS_HASH }}-
+            toolchain-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-
             toolchain-${{ env.REPO_BRANCH }}-
 
       - name: ☁️ Cache Staging Directory
@@ -214,10 +245,9 @@ jobs:
           path: |
             openwrt/staging_dir/host*
             openwrt/staging_dir/hostpkg
-          key: staging-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v5
+          key: staging-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-v5
           restore-keys: |
-            staging-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-
-            staging-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
+            staging-${{ env.REPO_BRANCH }}-${{ env.WEEK_KEY }}-
             staging-${{ env.REPO_BRANCH }}-
 
       - name: ☁️ Cache Build Host
@@ -228,72 +258,80 @@ jobs:
             openwrt/build_dir/host*
           key: buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v5
           restore-keys: |
-            buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-
-            buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS }}-
+            buildhost-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             buildhost-${{ env.REPO_BRANCH }}-
-
+            
       - name: ☁️ Cache Downloads
-        if: github.event.inputs.force_clean != 'true'
         uses: actions/cache@v4
         with:
           path: openwrt/dl
           key: downloads-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v6
           restore-keys: |
-            downloads-${{ envPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-
             downloads-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             downloads-${{ env.REPO_BRANCH }}-
-
+            
       - name: ☁️ Cache ccache
         if: github.event.inputs.force_clean != 'true'
         uses: actions/cache@v4
         with:
           path: openwrt/.ccache
-          key: ccache-${{ env.REPO_BRANCH }}-${{ envUGINS_HASH }}-${{ env.WEEK_KEY }}-v7
+          key: ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v7
           restore-keys: |
-            ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-
             ccache-${{ env.REPO_BRANCH }}-${{ env.PLUGINS_HASH }}-
             ccache-${{ env.REPO_BRANCH }}-
 
+      # ============================================
+      # 7. 简化的 Feeds 配置
+      # ============================================
       - name: 📚 Configure Feeds
         run: |
           cd "$OPENWRT_PATH"
+          
+          # 确保 feeds 目录干净
           echo "🧹 Cleaning feeds directory..."
           rm -rf feeds tmp/packagecache
-          if [ -f "${{ github.workspace }}/feeds.conf.default" ]; then
-            cp "${{ github.workspace }}/feeds.conf.default" .
-            echo "📄 Using custom feeds.conf.default"
-          else
-            echo "::warning::feeds.conf.default not found, using upstream defaults."
-          fi
+          
+          # 复制 feeds 配置
+          cp "${{ github.workspace }}/${{ env.FEEDS_CONF }}" ./feeds.conf.default
+          
           # 更新和安装 feeds
           echo "🔄 Updating feeds..."
           ./scripts/feeds update -a
           echo "📦 Installing feeds..."
           ./scripts/feeds install -a
-          
+
+      # ============================================
+      # 8. ccache 配置
+      # ============================================
       - name: 🔥 Prepare ccache
         run: |
           cd "$OPENWRT_PATH"
+          
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
+          
           mkdir -p "$CCACHE_DIR"
-          ccache -M 15G
-          ccache -F 150000
+          
+          # 基本的安全配置
+          ccache -M 10G
+          ccache -F 100000
           ccache --set-config=compression=true 2>/dev/null || true
-          ccache --set-config=stats=true 2>/dev/null || true
-          ccache --set-config=max_files=150000 2>/dev/null || true
+          
           echo "=== ccache configuration ==="
-          ccache -p 2>/dev/null || echo "ccache info not available"
-          ccache -s 2>/dev/null || echo "ccache stats not available"
+          ccache -p 2>/dev/null || true
+          ccache -s 2>/dev/null || true
           echo "=========================="
 
-      - name: 🎨 Apply Configuration
+      # ============================================
+      # 9. 自定义配置及插件开关
+      # ============================================
+      - name: 🎨 Apply Custom Configuration
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
-          ENABLE_DOCKER: ${{ github.inputs.docker == 'true' && 'y' || 'n' }}
-          ENABLE_SSRP: ${{ github.inputs.ssrp == 'true' && 'y' || 'n' }}
+          ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
+          ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
           ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
           ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
           ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
@@ -301,63 +339,64 @@ jobs:
           ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
         run: |
           cd "$OPENWRT_PATH"
+          
+          # 复制自定义文件
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
             mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
           fi
+          
+          # 复制配置文件
           cp "${{ github.workspace }}/$CONFIG_FILE" .config
-          if [ -d{ github.workspace }}/scripts" ]; then
-            find "${{ github.workspace }}/scripts" -name "*.sh" -exec chmod +x {} \;
-          fi
-          if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ];
-            chmod +x "${{ github.workspace }}/$DIY_SCRIPT"
+          
+          # 执行自定义脚本
+          chmod +x -R "${{ github.workspace }}/scripts"
+          if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
             "${{ github.workspace }}/$DIY_SCRIPT"
           fi
           "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
           "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
+          
+          # 生成配置
           echo "⚙️ Generating defconfig..."
           make defconfig
+          
+          # 提取目标信息
           DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config || echo "x86")
           DEVICE_SUBTARGET=$(awk -F'"' '/^CONFIG_TARGET_SUBTARGET=/{print $2}' .config || echo "64")
+          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | \
+            grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || echo "unknown")
+            
           {
             echo "DEVICE_TARGET=$DEVICE_TARGET"
             echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
+            echo "LATEST_RELEASE=$LATEST_RELEASE"
           } >> $GITHUB_ENV
-          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || echo "unknown")
-          echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
+          
           echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
           echo "📌 Latest Release: $LATEST_RELEASE"
-          echo "📦 Plugin Status:"
-          echo "  Docker: $ENABLE_DOCKER"
-          echo "  SSRP: $ENABLE_SSRP"
-          echo "  Passwall: $ENABLE_PASSWALL"
-          echo "  OpenClash: $ENABLE_OPENCLASH"
-          echo "  Nikki: $ENABLE_NIKKI"
-          echo "  Lucky: $ENABLE_LUCKY"
-          echo "  OAF: $ENABLE_OAF"
 
+      # ============================================
+      # 10. 强制清理
+      # ============================================
       - name: 🧹 Clean Build Directory
         if: github.event.inputs.force_clean == 'true'
         run: |
           cd "$OPENWRT_PATH"
           echo "🧹 Force cleaning build directory..."
-          cp .config .config.backup
           make dirclean
-          cp .config.backup .config
-          rm .config.backup
-          make defconfig
 
+      # ============================================
+      # 11. 下载依赖包
+      # ============================================
       - name: 📥 Download Packages
         run: |
           cd "$OPENWRT_PATH"
           echo "📥 Starting optimized package download..."
-          DOWNLOAD_JOBS=$((COMPILEOBS < 16 ? COMPILE_JOBS * 2 : 16))
-          if command -v aria2c >/dev/null 2>&1; then
-            echo "🚀 Using aria2 for faster downloads"
-            make download -j"$DOWNLOAD_JOBS" DOWNLOAD_TOOL="aria2c -x 4 -s 4" 2>&1 | tee download.log
-          else
-            make download -j"$DOWNLOAD_JOBS" 2>&1 | tee download.log
-          fi
+          make download -j"$COMPILE_JOBS" V=s
 
+      # ============================================
+      # 12. 编译固件
+      # ============================================
       - name: 🔨 Compile Firmware
         id: compile
         timeout-minutes: 600
@@ -368,16 +407,11 @@ jobs:
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
-
-          # 🔥 额外的编译优化
-          export FORCE_UNSAFE_CONFIGURE=1
-          export CONFIG_CCACHE=y
           
           echo "🔨 Starting compilation with $COMPILE_JOBS jobs..."
           echo "=== ccache initial stats ==="
+          ccache -z
           ccache -s
-          echo "CCACHE_DIR: $CCACHE_DIR"
-          echo "PATH: $PATH"
           echo "=========================="
           
           compile_with_jobs() {
@@ -385,7 +419,7 @@ jobs:
             local log_file="compile_j${jobs}.log"
             echo "🔧 Compiling with $jobs jobs..."
             
-            if timeout 500m make -j"$jobs" 2>&1 | tee "$log_file"; then
+            if make -j"$jobs" V=s 2>&1 | tee "$log_file"; then
               echo "✅ Compilation successful with $jobs jobs"
               return 0
             else
@@ -405,89 +439,65 @@ jobs:
             echo "❌ All compilation attempts failed"
             echo "=== Build Error Analysis ==="
             if [ -f "compile_j1.log" ]; then
-              echo "Last 100 lines of single-threaded build:"
-              tail -n 100 compile_j1.log
+              echo "Last 200 lines of single-threaded build:"
+              tail -n 200 compile_j1.log
             fi
-            echo "=== Recent package logs ==="
-            find logs -name "*.log" -mtime -1 -exec echo "=== {} ===" \; -exec tail -n 30 {} \; 2>/dev/null | head -500
             exit 1
           fi
           
           echo "=== ccache final stats ==="
-          ccache -s || echo "ccache stats not available"
-          echo "Cache directory size: $(du -sh .ccache 2>/dev/null || echo 'N/A')"
+          ccache -s
           echo "========================="
-          
+
       - name: 📊 Cache Statistics
         if: always()
         run: |
-          cd "$OPENWRT_PATH"
           echo "=== Cache Effectiveness Report ==="
           echo "Date: $(date)"
-          echo "Branch: ${{ env.REPO_BRANCH }}"
-          echo "Plugins Hash: ${{ env.PLUGINS_HASH }}"
-          echo "Week Key: ${{ env.WEEK_KEY }}"
-          echo ""
-          echo "📁 Directory Sizes:"
-          du -sh dl/ 2>/dev/null || echo "dl/: Not found"
-          du -sh .ccache/ 2>/dev/null || echo ".ccache/: Not found"
-          du -sh staging_dir/ 2>/dev/null || echo "staging_dir/: Not found"
-          du -sh build_dir/toolchain-* 2>/dev/null || echo "toolchain build_dir/: Not found"
-          echo ""
+          
+          cd "$OPENWRT_PATH"
+          
           echo "🎯 ccache Statistics:"
           if command -v ccache >/dev/null 2>&1; then
             export CCACHE_DIR="$PWD/.ccache"
             ccache -s
-            echo ""
-            echo "📈 Cache Hit Rate:"
-            ccache -s | grep -E "(cache hit|cache miss|files in cache || echo "Stats not available"
           else
             echo "ccache not available"
           fi
-          echo "================================="      - name: 📦 Organize Firmware
+          echo "================================="
+
+      # ============================================
+      # 13. 整理固件文件
+      # ============================================
+      - name: 📦 Organize Firmware
         if: steps.compile.outputs.status == 'success'
         id: organize
         run: |
           cd "$OPENWRT_PATH/bin/targets"/*/*
-          echo "=== Generated Files ==="
-          ls -lah
+          
+          # 安全提取内核版本
           KERNEL_VERSION="unknown"
           if ls *.manifest 1> /dev/null 2>&1; then
             KERNEL_VERSION=$(grep "^kernel " *.manifest | head -1 | awk '{print $3}' | cut -d- -f1-2 || echo "unknown")
           fi
+          
+          # 复制配置文件
           cp "$OPENWRT_PATH/.config" build.config
-          if [ -d packages ]; then
-            tar -czf kernel-modules.tar.gz packages/
-            rm -rf packages
-          fi
-          rm -f feeds.buildinfo version.buildinfo *.manifest
-          cat > firmware_info.json <<EOF
-          {
-            "build_date": "$BUILD_DATE",
-            "build_version": "$BUILD_VERSION",
-            "build_id": "$BUILD_ID",
-            "kernel_version": "$KERNEL_VERSION",
-            "target": "$DEVICE_TARGET",
-            "subtarget": "$DEVICE_SUBTARGET",
-            "lan_address": "${{ github.event.inputs.lan_addr }}",
-            "commit_hash": "$COMMIT_HASH",
-            "plugins": {
-              "docker": ${{ github.event.inputs.docker }},
-              "ssrp": ${{ github.event.inputs.ssrp }},
-              "passwall": ${{ github.event.inputs.passwall }},
-              "openclash": ${{ github.event.inputs.openclash }},
-              "nikki": ${{ github.event.inputs.nikki }},
-              "lucky": ${{ github.event.inputs.lucky }},
-              "oaf": ${{ github.event.inputs.oaf }}
-            }
-          }
-          EOF
+          
+          # 清理不需要的文件
+          rm -f feeds.buildinfo version.buildinfo *.manifest packages
+          
+          # 输出结果
           {
             echo "firmware_path=$PWD"
             echo "kernel_version=$KERNEL_VERSION"
-          >> $GITHUB_OUTPUT
+          } >> $GITHUB_OUTPUT
+          
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
+      # ============================================
+      # 14. 上传 Artifacts
+      # ============================================
       - name: 📤 Upload Artifacts
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
@@ -497,50 +507,42 @@ jobs:
           retention-days: 30
           compression-level: 6
 
+      # ============================================
+      # 15. 创建 Release
+      # ============================================
       - name: 🚀 Create Release
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
         uses: ncipollo/release-action@v1.14.0
         with:
           name: ${{ env.FILE_DATE }} • ${{ env.FIRMWARE_TAG }} • ${{ env.LATEST_RELEASE }}
           allowUpdates: true
-          tag: ${{ env.FIRMWARE_TAG }}-${{ env.FILE_DATE }}
+          tag: ${{ env.FIRMWARE_TAG }}
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: ${{ env.FIRMWARE_PATH }}/*
           body: |
             ## 🎯 OpenWrt Firmware [${{ env.BUILD_ID }}]
-
+            
             ### 📊 构建信息
             | 项目 | 信息 |
-            |------|------|
+            |--- |--- |
             | **版本** | `${{ env.LATEST_RELEASE }}` |
-            | **** | `${{ env.BUILD_DATE }}` |
+            | **日期** | `${{ env.BUILD_DATE }}` |
             | **目标** | `${{ env.DEVICE_TARGET }}_${{ env.DEVICE_SUBTARGET }}` |
             | **内核** | `${{ steps.organize.outputs.kernel_version }}` |
             | **LAN IP** | `${{ github.event.inputs.lan_addr }}` |
-            | **Password** | `${{ github.event.inputs.root_password }}` |
-
+            
             ### 📦 包含的插件
             | 插件 | 状态 |
-            |------|------|
+            |--- |--- |
             | Docker | ${{ github.event.inputs.docker == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || ' 未编译' }} |
+            | ShadowSocksR Plus+ | ${{ github.event.inputs.ssrp == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | Passwall | ${{ github.event.inputs.passwall == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅编译' || '❌ 未编译' }} |
+            | OpenClash | ${{ github.event.inputs.openclash == 'true' && '✅ 已编译' || '❌ 未编译' }} |
             | Nikki | ${{ github.event.inputs.nikki == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | Lucky | ${{ github.event.inputs.lucky 'true' && '✅ 已编译' || '❌ 未编译' }} |
-            | OpenApp | ${{ github.event.inputs.oaf == 'true' && '✅ 已编译' || '❌ 未编译' }} |
-
+            | Lucky | ${{ github.event.inputs.lucky == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            | OpenAppFilter | ${{ github.event.inputs.oaf == 'true' && '✅ 已编译' || '❌ 未编译' }} |
+            
             ### 📝 源码信息
-            - **仓库**: $ env.REPO_URL }}
+            - **仓库**: ${{ env.REPO_URL }}
             - **分支**: `${{ env.REPO_BRANCH }}`
             - **提交**: `${{ env.COMMIT_HASH }}`
-            - **作者**: ${{ env.COMMIT_AUTHOR }}
-            - **时间**: ${{ env.COMMIT_DATE }}
-            - **消息**: ${{ env.COMMIT_MESSAGE }}
-
-            ### 📥 安装说明
-
-            #### UEFI 固件（推荐）：
-            ```bash
-            gunzip openwrt-*-generic-ext4-combined-efi.img.gz
-            dd if=openwrt-*-generic-ext4-combined-efi.img of=/dev/sdX bs=4M status=progress
