@@ -14,7 +14,7 @@ on:
     inputs:
       lan_addr:
         description: "📍 默认 LAN 地址"
-        default: "192.168.1.10"
+        default: "192.168.1.200"
         required: true
         type: string
       root_password:
@@ -75,7 +75,7 @@ concurrency:
 jobs:
   build:
     name: 🏗️ Build OpenWrt
-    runs-on: ubuntu-22.04 # 建议使用 LTS 版本以获得更好的稳定性
+    runs-on: ubuntu-24.04 
     timeout-minutes: 720
     outputs:
       firmware_path: ${{ steps.organize.outputs.firmware_path }}
