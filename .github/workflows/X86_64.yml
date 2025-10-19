@@ -270,7 +270,7 @@ jobs:
           ./scripts/feeds update -a
           echo "📦 Installing feeds..."
           ./scripts/feeds install -a
-      # 🔥【修正】确保此步骤的 '-' 与上面步骤的 '-' 对齐
+          
       - name: 🔥 Prepare ccache
         run: |
           cd "$OPENWRT_PATH"
@@ -363,19 +363,28 @@ jobs:
         timeout-minutes: 600
         run: |
           cd "$OPENWRT_PATH"
+          
+          # 使用已配置的 ccache
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
+
+          # 🔥 额外的编译优化
+          export FORCE_UNSAFE_CONFIGURE=1
+          export CONFIG_CCACHE=y
+          
           echo "🔨 Starting compilation with $COMPILE_JOBS jobs..."
           echo "=== ccache initial stats ==="
           ccache -s
-          echo "CCACHE_DIR: $CC_DIR"
+          echo "CCACHE_DIR: $CCACHE_DIR"
           echo "PATH: $PATH"
           echo "=========================="
+          
           compile_with_jobs() {
             local jobs=$1
             local log_file="compile_j${jobs}.log"
             echo "🔧 Compiling with $jobs jobs..."
+            
             if timeout 500m make -j"$jobs" 2>&1 | tee "$log_file"; then
               echo "✅ Compilation successful with $jobs jobs"
               return 0
@@ -384,6 +393,8 @@ jobs:
               return 1
             fi
           }
+          
+          # 尝试编译（逐步降低并行度）
           if compile_with_jobs "$COMPILE_JOBS"; then
             echo "status=success" >> $GITHUB_OUTPUT
           elif [ "$COMPILE_JOBS" -gt 2 ] && compile_with_jobs $((COMPILE_JOBS/2)); then
@@ -401,11 +412,12 @@ jobs:
             find logs -name "*.log" -mtime -1 -exec echo "=== {} ===" \; -exec tail -n 30 {} \; 2>/dev/null | head -500
             exit 1
           fi
+          
           echo "=== ccache final stats ==="
           ccache -s || echo "ccache stats not available"
           echo "Cache directory size: $(du -sh .ccache 2>/dev/null || echo 'N/A')"
           echo "========================="
-
+          
       - name: 📊 Cache Statistics
         if: always()
         run: |
