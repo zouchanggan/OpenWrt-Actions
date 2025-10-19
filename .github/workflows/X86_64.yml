@@ -264,7 +264,8 @@ jobs:
             echo "📄 Using custom feeds.conf.default"
           else
             echo "::warning::feeds.conf.default not found, using upstream defaults."
-          fi          echo "🔄 Updating feeds..."
+          fi          
+          echo "🔄 Updating feeds..."
           ./scripts/feeds update -a
           echo "📦 Installing feeds..."
           ./scripts/feeds install -a
