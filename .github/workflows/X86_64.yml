@@ -10,7 +10,7 @@ on:
     inputs:
       lan_addr:
         description: "📍 默认 LAN 地址"
-        default: "192.168.1.10"
+        default: "192.168.1.200"
         required: true
         type: string
       root_password:
@@ -35,7 +35,7 @@ on:
         type: boolean
         default: true
       openclash:
-        description: "⚡ OpenCl
+        description: "⚡ OpenClash"
         type: boolean
         default: true
       lucky:
