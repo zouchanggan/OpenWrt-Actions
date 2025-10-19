@@ -264,13 +264,13 @@ jobs:
             echo "📄 Using custom feeds.conf.default"
           else
             echo "::warning::feeds.conf.default not found, using upstream defaults."
-          fi          
+          fi
           # 更新和安装 feeds
           echo "🔄 Updating feeds..."
           ./scripts/feeds update -a
           echo "📦 Installing feeds..."
           ./scripts/feeds install -a
-          
+      # 🔥【修正】确保此步骤的 '-' 与上面步骤的 '-' 对齐
       - name: 🔥 Prepare ccache
         run: |
           cd "$OPENWRT_PATH"
@@ -278,7 +278,7 @@ jobs:
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
           mkdir -p "$CCACHE_DIR"
-         cache -M 15G
+          ccache -M 15G
           ccache -F 150000
           ccache --set-config=compression=true 2>/dev/null || true
           ccache --set-config=stats=true 2>/dev/null || true
