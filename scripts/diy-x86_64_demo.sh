@@ -442,7 +442,7 @@ git clone https://$github/sbwml/openwrt_pkgs package/new/custom --depth=1
 rm -rf package/new/custom/luci-app-adguardhome
 
 # autocore-arm
-# git clone https://$github/grandway2025/autocore-arm package/new/autocore-arm
+git clone https://$github/grandway2025/autocore-arm package/new/autocore-arm
 
 sed -i 's/O2/O2 -march=x86-64-v2/g' include/target.mk
 
