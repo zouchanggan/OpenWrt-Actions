@@ -359,7 +359,7 @@ jobs:
           fi
 
       - name: 🔨 Compile Firmware
-        compile
+        id: compile
         timeout-minutes: 600
         run: |
           cd "$OPENWRT_PATH"
