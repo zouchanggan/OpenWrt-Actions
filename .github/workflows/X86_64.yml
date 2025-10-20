@@ -407,11 +407,16 @@ jobs:
           export USE_CCACHE=1
           export CCACHE_DIR="$PWD/.ccache"
           export PATH="/usr/lib/ccache:$PATH"
+
+          # 🔥 额外的编译优化
+          export FORCE_UNSAFE_CONFIGURE=1
+          export CONFIG_CCACHE=y
           
           echo "🔨 Starting compilation with $COMPILE_JOBS jobs..."
           echo "=== ccache initial stats ==="
-          ccache -z
           ccache -s
+          echo "CCACHE_DIR: $CCACHE_DIR"
+          echo "PATH: $PATH"
           echo "=========================="
           
           compile_with_jobs() {
@@ -419,7 +424,7 @@ jobs:
             local log_file="compile_j${jobs}.log"
             echo "🔧 Compiling with $jobs jobs..."
             
-            if make -j"$jobs" V=s 2>&1 | tee "$log_file"; then
+            if timeout 500m make -j"$jobs" 2>&1 | tee "$log_file"; then
               echo "✅ Compilation successful with $jobs jobs"
               return 0
             else
@@ -439,14 +444,17 @@ jobs:
             echo "❌ All compilation attempts failed"
             echo "=== Build Error Analysis ==="
             if [ -f "compile_j1.log" ]; then
-              echo "Last 200 lines of single-threaded build:"
-              tail -n 200 compile_j1.log
+              echo "Last 100 lines of single-threaded build:"
+              tail -n 100 compile_j1.log
             fi
+            echo "=== Recent package logs ==="
+            find logs -name "*.log" -mtime -1 -exec echo "=== {} ===" \; -exec tail -n 30 {} \; 2>/dev/null | head -500
             exit 1
           fi
           
           echo "=== ccache final stats ==="
-          ccache -s
+          ccache -s || echo "ccache stats not available"
+          echo "Cache directory size: $(du -sh .ccache 2>/dev/null || echo 'N/A')"
           echo "========================="
 
       - name: 📊 Cache Statistics
@@ -474,6 +482,8 @@ jobs:
         id: organize
         run: |
           cd "$OPENWRT_PATH/bin/targets"/*/*
+          echo "=== Generated Files ==="
+          ls -lah
           
           # 安全提取内核版本
           KERNEL_VERSION="unknown"
@@ -484,8 +494,37 @@ jobs:
           # 复制配置文件
           cp "$OPENWRT_PATH/.config" build.config
           
+          # 打包内核模块
+          if [ -d packages ]; then
+            tar -czf kernel-modules.tar.gz packages/
+            rm -rf packages
+          fi
+          
           # 清理不需要的文件
           rm -f feeds.buildinfo version.buildinfo *.manifest
+          
+          # 生成固件信息
+          cat > firmware_info.json <<EOF
+          {
+            "build_date": "$BUILD_DATE",
+            "build_version": "$BUILD_VERSION",
+            "build_id": "$BUILD_ID",
+            "kernel_version": "$KERNEL_VERSION",
+            "target": "$DEVICE_TARGET",
+            "subtarget": "$DEVICE_SUBTARGET",
+            "lan_address": "${{ github.event.inputs.lan_addr }}",
+            "commit_hash": "$COMMIT_HASH",
+            "plugins": {
+              "docker": ${{ github.event.inputs.docker }},
+              "ssrp": ${{ github.event.inputs.ssrp }},
+              "passwall": ${{ github.event.inputs.passwall }},
+              "openclash": ${{ github.event.inputs.openclash }},
+              "nikki": ${{ github.event.inputs.nikki }},
+              "lucky": ${{ github.event.inputs.lucky }},
+              "oaf": ${{ github.event.inputs.oaf }}
+            }
+          }
+          EOF
           
           # 输出结果
           {
