@@ -485,7 +485,7 @@ jobs:
           cp "$OPENWRT_PATH/.config" build.config
           
           # 清理不需要的文件
-          rm -f feeds.buildinfo version.buildinfo *.manifest packages
+          rm -f feeds.buildinfo version.buildinfo *.manifest
           
           # 输出结果
           {
