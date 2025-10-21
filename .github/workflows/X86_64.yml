@@ -323,42 +323,47 @@ jobs:
       # ============================================
       - name: 🔥 Configure ccache (Enhanced)
         run: |
-          # 使用全局 ccache 目录
-          export CCACHE_DIR=/home/runner/.ccache
+          echo "=== Configuring ccache with aggressive settings ==="
           
-          # 🔥 激进优化配置
+          # 设置 ccache 配置
           ccache --set-config=max_size=20G
-          ccache --set-config=max_files=200000
           ccache --set-config=compression=true
           ccache --set-config=compression_level=6
-          ccache --set-config=sloppiness=file_macro,locale,time_macros,include_file_mtime,include_file_ctime,file_stat_matches,pch_defines
+          ccache --set-config=cache_dir=/home/runner/.ccache
           ccache --set-config=hash_dir=false
-          ccache --set-config=compiler_check=content
+          ccache --set-config=sloppiness=file_macro,time_macros,include_file_mtime,include_file_ctime,file_stat_matches
           ccache --set-config=depend_mode=true
           ccache --set-config=direct_mode=true
-          ccache --set-config=recache=false
+          ccache --set-config=stats=true
           
-          # 创建编译器链接
-          sudo ln -sf /usr/bin/ccache /usr/local/bin/gcc
-          sudo ln -sf /usr/bin/ccache /usr/local/bin/g++
-          sudo ln -sf /usr/bin/ccache /usr/local/bin/cc
-          sudo ln -sf /usr/bin/ccache /usr/local/bin/c++
+          # 显示配置
+          echo "Current ccache configuration:"
+          ccache -p
           
-          # 显示初始状态
-          echo "=== ccache initial setup ==="
-          ccache -s
-          ccache -p | grep -E "max_size|max_files|sloppiness|compression"
-          echo "============================"
+          # 清理统计
+          ccache -z
           
-          # 导出环境变量
-          {
-            echo "PATH=/usr/lib/ccache:/usr/local/bin:$PATH"
-            echo "CCACHE_DIR=/home/runner/.ccache"
-            echo "USE_CCACHE=1"
-            echo "CCACHE_COMPRESS=1"
-            echo "CONFIG_CCACHE=y"
-            echo "CONFIG_DEVEL=y"
-          } >> $GITHUB_ENV
+          # 设置环境变量
+          echo "CC=ccache gcc" >> $GITHUB_ENV
+          echo "CXX=ccache g++" >> $GITHUB_ENV
+          echo "CCACHE_DIR=/home/runner/.ccache" >> $GITHUB_ENV
+          
+          # 创建 ccache 包装脚本（更安全的方式）
+          sudo mkdir -p /usr/local/lib/ccache
+          
+          # 为常用编译器创建包装脚本
+          for compiler in gcc g++ cc c++ clang clang++; do
+            if command -v $compiler >/dev/null 2>&1; then
+              sudo ln -sf $(which ccache) /usr/local/lib/ccache/$compiler
+              echo "✓ Created ccache wrapper for $compiler"
+            fi
+          done
+          
+          # 将 ccache 包装目录添加到 PATH 最前面
+          echo "/usr/local/lib/ccache" >> $GITHUB_PATH
+          
+          echo "✅ ccache configuration completed"
+          echo "ccache version: $(ccache --version | head -n1)"
 
       # ============================================
       # 10. 简化的 Feeds 配置
