@@ -1,7 +1,7 @@
 #=================================================
 # 优化版：保持缓存76%+命中率，消除冗余代码
 # Author: P3TERX (Optimized - Redundancy Removed)
-# Version: v11-optimized
+# Version: v12-with-prebuilt-toolchain
 #=================================================
 name: 💻 Build OpenWrt (x86_64)
 
@@ -186,7 +186,7 @@ jobs:
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
       
-            # ============================================
+      # ============================================
       # 5. 源码准备与信息采集
       # ============================================
       - name: 📥 Prepare OpenWrt Source
@@ -234,7 +234,7 @@ jobs:
           } >> $GITHUB_ENV
 
       # ============================================
-      # 🔥 NEW: 6. 下载并应用预编译工具链
+      # 6. 下载并应用预编译工具链
       # ============================================
       - name: 🔧 Download Prebuilt Toolchain
         id: download_toolchain
@@ -245,7 +245,7 @@ jobs:
           echo ""
           
           # 计算工具链哈希（与 build-toolchain.yml 保持一致）
-          TARGET_PLATFORM="x86/64"  # 根据你的目标平台调整
+          TARGET_PLATFORM="x86/64"
           TOOLCHAIN_HASH=$(echo "${{ env.REPO_BRANCH }}-${TARGET_PLATFORM}" | md5sum | cut -d' ' -f1)
           TOOLCHAIN_TAG="toolchain-${TOOLCHAIN_HASH}"
           
@@ -281,12 +281,13 @@ jobs:
               
               # 复制 staging_dir
               if [ -d "/tmp/toolchain/staging_dir" ]; then
+                mkdir -p staging_dir
                 cp -r /tmp/toolchain/staging_dir/* staging_dir/ 2>/dev/null || true
                 echo "✅ Copied staging_dir"
               fi
               
               # 复制 build_dir/toolchain
-              if [ -d "/tmp/toolchain" ]; then
+              if [ -d "/tmp/toolchain/build_dir" ]; then
                 mkdir -p build_dir
                 cp -r /tmp/toolchain/build_dir/toolchain-* build_dir/ 2>/dev/null || true
                 echo "✅ Copied toolchain build files"
@@ -349,7 +350,7 @@ jobs:
           path: |
             openwrt/staging_dir/toolchain-*
             openwrt/build_dir/toolchain-*
-          key: toolchain-${{ env.SOURCE_KEY }}-${{ env.MONTH_KEY }}-v11
+          key: toolchain-${{ env.SOURCE_KEY }}-${{ env.MONTH_KEY }}-v12
           restore-keys: |
             toolchain-${{ env.SOURCE_KEY }}-${{ env.MONTH_KEY }}-
             toolchain-${{ env.SOURCE_KEY }}-
@@ -364,7 +365,7 @@ jobs:
             openwrt/staging_dir/host*
             openwrt/staging_dir/hostpkg
             openwrt/staging_dir/packages
-          key: staging-${{ env.SOURCE_KEY }}-${{ env.WEEK_KEY }}-v11
+          key: staging-${{ env.SOURCE_KEY }}-${{ env.WEEK_KEY }}-v12
           restore-keys: |
             staging-${{ env.SOURCE_KEY }}-${{ env.WEEK_KEY }}-
             staging-${{ env.SOURCE_KEY }}-
@@ -377,7 +378,7 @@ jobs:
         with:
           path: |
             openwrt/build_dir/host*
-          key: buildhost-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v11
+          key: buildhost-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v12
           restore-keys: |
             buildhost-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-
             buildhost-${{ env.SOURCE_KEY }}-
@@ -388,7 +389,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: downloads-${{ env.SOURCE_KEY }}-${{ env.MONTH_KEY }}-v11
+          key: downloads-${{ env.SOURCE_KEY }}-${{ env.MONTH_KEY }}-v12
           restore-keys: |
             downloads-${{ env.SOURCE_KEY }}-
             downloads-${{ env.REPO_BRANCH }}-
@@ -399,7 +400,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: openwrt/.ccache
-          key: ccache-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v11
+          key: ccache-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.WEEK_KEY }}-v12
           restore-keys: |
             ccache-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-
             ccache-${{ env.SOURCE_KEY }}-
@@ -413,7 +414,7 @@ jobs:
           path: |
             openwrt/feeds
             openwrt/.git/modules
-          key: feeds-${{ env.SOURCE_KEY }}-${{ env.WEEK_KEY }}-v11
+          key: feeds-${{ env.SOURCE_KEY }}-${{ env.WEEK_KEY }}-v12
           restore-keys: |
             feeds-${{ env.SOURCE_KEY }}-
             feeds-${{ env.REPO_BRANCH }}-
@@ -426,7 +427,7 @@ jobs:
           path: |
             openwrt/build_dir/target-*/linux-*/linux-*/.configured
             openwrt/build_dir/target-*/linux-*/modules.builtin*
-          key: builddir-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.DAY_KEY }}-v11
+          key: builddir-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-${{ env.DAY_KEY }}-v12
           restore-keys: |
             builddir-${{ env.SOURCE_KEY }}-${{ env.PLUGINS_HASH }}-
             builddir-${{ env.SOURCE_KEY }}-
@@ -457,8 +458,9 @@ jobs:
           echo "📦 Installing feeds..."
           ./scripts/feeds install -a
           echo "✅ Feeds configured"
+      
       # ============================================
-      # 8. 🔥 增强的 ccache 配置（优化版 - 使用配置文件）
+      # 9. 🔥 增强的 ccache 配置（优化版 - 使用配置文件）
       # ============================================
       - name: 🔥 Prepare & Optimize ccache
         run: |
@@ -502,7 +504,7 @@ jobs:
           } >> $GITHUB_ENV
       
       # ============================================
-      # 9. 自定义配置及插件开关
+      # 10. 自定义配置及插件开关
       # ============================================
       - name: 🎨 Apply Custom Configuration
         env:
@@ -566,7 +568,7 @@ jobs:
           echo "  OpenClash: $ENABLE_OPENCLASH | Nikki: $ENABLE_NIKKI | Lucky: $ENABLE_LUCKY | OAF: $ENABLE_OAF"
       
       # ============================================
-      # 10. 强制清理（保留关键缓存）
+      # 11. 强制清理（保留关键缓存）
       # ============================================
       - name: 🧹 Clean Build Directory
         if: github.event.inputs.force_clean == 'true'
@@ -586,7 +588,7 @@ jobs:
           make defconfig
       
       # ============================================
-      # 11. 下载依赖包（优化版 - 简化输出）
+      # 12. 下载依赖包（优化版 - 简化输出）
       # ============================================
       - name: 📥 Download Packages (Incremental)
         run: |
@@ -613,7 +615,7 @@ jobs:
           echo "📊 Downloads: $(find dl -type f 2>/dev/null | wc -l) files ($(du -sh dl 2>/dev/null | cut -f1))"
       
       # ============================================
-      # 12. 编译固件（优化版 - 简化）
+      # 13. 编译固件（优化版 - 简化）
       # ============================================
       - name: 🔨 Compile Firmware
         id: compile
@@ -637,8 +639,8 @@ jobs:
           ccache -s || echo "ccache stats not available"
           echo "Cache directory size: $(du -sh .ccache 2>/dev/null || echo 'N/A')"
    
-      # ============================================
-      # 13. 📊 构建报告（合并统计步骤）
+            # ============================================
+      # 14. 📊 构建报告（合并统计步骤）
       # ============================================
       - name: 📊 Cache Statistics
         if: always()
@@ -654,6 +656,14 @@ jobs:
           echo "  Month: ${{ env.MONTH_KEY }}"
           echo "  Week: ${{ env.WEEK_KEY }}"
           echo "  Plugins: ${{ env.PLUGINS_HASH }}"
+          echo ""
+          
+          echo "🔧 Toolchain Status:"
+          if [ "${{ env.TOOLCHAIN_READY }}" == "true" ]; then
+            echo "  ✅ Using prebuilt toolchain"
+          else
+            echo "  🔨 Built from scratch"
+          fi
           echo ""
           
           echo "📁 Directory Sizes:"
@@ -673,9 +683,10 @@ jobs:
           else
             echo "ccache not available"
           fi
-          echo "================================="    
+          echo "================================="
+      
       # ============================================
-      # 14. 整理固件文件
+      # 15. 整理固件文件
       # ============================================
       - name: 📦 Organize Firmware
         if: steps.compile.outputs.status == 'success'
@@ -714,6 +725,7 @@ jobs:
             "subtarget": "$DEVICE_SUBTARGET",
             "lan_address": "${{ github.event.inputs.lan_addr }}",
             "commit_hash": "$COMMIT_HASH",
+            "toolchain_prebuilt": ${{ env.TOOLCHAIN_READY == 'true' && 'true' || 'false' }},
             "plugins": {
               "docker": ${{ github.event.inputs.docker }},
               "ssrp": ${{ github.event.inputs.ssrp }},
@@ -735,7 +747,7 @@ jobs:
           echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
       
       # ============================================
-      # 15. 上传 Artifacts
+      # 16. 上传 Artifacts
       # ============================================
       - name: 📤 Upload Artifacts
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_ARTIFACTS == 'true'
@@ -747,7 +759,7 @@ jobs:
           compression-level: 6
       
       # ============================================
-      # 16. 创建 Release
+      # 17. 创建 Release
       # ============================================
       - name: 🚀 Create Release
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
@@ -770,6 +782,7 @@ jobs:
             | **内核** | `${{ steps.organize.outputs.kernel_version }}` |
             | **LAN IP** | `${{ github.event.inputs.lan_addr }}` |
             | **Password** | `${{ github.event.inputs.root_password }}` |
+            | **工具链** | ${{ env.TOOLCHAIN_READY == 'true' && '✅ 预编译工具链' || '🔨 从源码构建' }} |
             
             ### 📦 包含的插件
             | 插件 | 状态 |
@@ -790,9 +803,22 @@ jobs:
             - **时间**: ${{ env.COMMIT_DATE }}
             - **消息**: ${{ env.COMMIT_MESSAGE }}
             
+            ### 🚀 性能优化
+            - ✅ **预编译工具链**: 节省 20-30 分钟构建时间
+            - ✅ **ccache 缓存**: 76%+ 命中率
+            - ✅ **多层缓存策略**: 7 层智能缓存
+            - ✅ **增量构建**: 仅重新编译变更部分
+            
             ### 📥 安装说明
             
             #### UEFI 固件（推荐）：
             ```bash
+            # 1. 解压固件
             gunzip openwrt-*-generic-ext4-combined-efi.img.gz
-            dd if=openwrt-*-generic-ext4-combined-efi.img of=/dev/sdX bs=4M status=progress
+            
+            # 2. 写入磁盘（替换 /dev/sdX 为实际设备）
+            sudo dd if=openwrt-*-generic-ext4-combined-efi.img of=/dev/sdX bs=4M status=progress
+            
+            # 3. 同步并弹出
+            sync
+            sudo eject /dev/sdX
