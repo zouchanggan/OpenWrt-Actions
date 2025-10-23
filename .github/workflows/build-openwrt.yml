@@ -236,94 +236,115 @@ jobs:
       # ============================================
       # 6. 下载并应用预编译工具链
       # ============================================
-      - name: 📥 Download Prebuilt Toolchain
-        if: github.event.inputs.use_prebuilt_toolchain == 'true'
-        id: download_toolchain
-        continue-on-error: true
+      - name: 🧮 Resolve Toolchain Release
+        id: toolchain_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "╔════════════════════════════════════════════╗"
-          echo "║   📥 Downloading Prebuilt Toolchain        ║"
-          echo "╚════════════════════════════════════════════╝"
-          echo ""
-          
           # 计算工具链哈希
-          TOOLCHAIN_HASH=$(echo -n "${{ env.REPO_URL }}|${{ env.REPO_BRANCH }}|${{ env.DEVICE_TARGET }}|${{ env.DEVICE_SUBTARGET }}" | sha256sum | cut -d' ' -f1 | cut -c1-16)
-          echo "🔑 Toolchain Hash: $TOOLCHAIN_HASH"
-          echo "TOOLCHAIN_HASH=$TOOLCHAIN_HASH" >> $GITHUB_ENV
+          HASH=$(echo "${REPO_BRANCH}-x86/64" | md5sum | cut -d' ' -f1)
+          echo "toolchain_hash=$HASH" >> $GITHUB_OUTPUT
+          echo "TOOLCHAIN_HASH=$HASH" >> $GITHUB_ENV
           
-          # 构建缓存键
-          TOOLCHAIN_KEY="toolchain-${{ env.SOURCE_KEY }}-${TOOLCHAIN_HASH}"
-          echo "🔑 Cache Key: $TOOLCHAIN_KEY"
+          echo "🔍 Checking for prebuilt toolchain release: toolchain-$HASH"
           
-          # 尝试从 GitHub Releases 下载
-          echo "🔍 Looking for toolchain: toolchain-${TOOLCHAIN_HASH}"
-          
-          # 获取最新的工具链 release
-          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/toolchain-${TOOLCHAIN_HASH}"
-          
-          if curl -s -f -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" > /dev/null 2>&1; then
-            echo "✅ Found prebuilt toolchain!"
+          # 检查 Release 是否存在
+          if gh release view "toolchain-$HASH" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Found prebuilt toolchain release: toolchain-$HASH"
             
-            # 下载工具链包
-            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/toolchain-${TOOLCHAIN_HASH}/toolchain.tar.zst"
-            
-            echo "📦 Downloading toolchain package..."
-            mkdir -p /tmp/toolchain-download
-            
-            if wget -q --show-progress \
-                 --header="Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -O /tmp/toolchain-download/toolchain.tar.zst \
-                 "$DOWNLOAD_URL"; then
-              
-              echo "✅ Download successful!"
-              echo "📊 Package size: $(du -h /tmp/toolchain-download/toolchain.tar.zst | cut -f1)"
-              
-              # 解压工具链到 OpenWrt 目录
-              echo "📦 Extracting toolchain..."
-              cd "$OPENWRT_PATH"
-              
-              if tar -I zstd -xf /tmp/toolchain-download/toolchain.tar.zst; then
-                echo "✅ Toolchain extracted successfully!"
-                
-                # 验证关键目录
-                if [ -d "staging_dir/toolchain-x86_64_gcc-13.3.0_musl" ] || \
-                   [ -d "staging_dir/toolchain-"* ]; then
-                  echo "✅ Toolchain validation passed!"
-                  echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
-                  echo "status=success" >> $GITHUB_OUTPUT
-                  
-                  # 显示工具链信息
-                  echo ""
-                  echo "📋 Toolchain Contents:"
-                  ls -lh staging_dir/ | head -10
-                  
-                  # 清理下载文件
-                  rm -rf /tmp/toolchain-download
-                  
-                  echo ""
-                  echo "🎉 Prebuilt toolchain ready!"
-                  echo "⚡ This will save ~20-30 minutes of build time!"
-                  exit 0
-                else
-                  echo "❌ Toolchain validation failed!"
-                  echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-                  exit 1
-                fi
-              else
-                echo "❌ Failed to extract toolchain"
-                echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-                exit 1
-              fi
+            # 获取 Release 中的文件列表
+            FILES=$(gh release view "toolchain-$HASH" --repo ${{ github.repository }} --json assets --jq '.assets[].name' | grep '\.tar\.gz$' || echo "")
+            if [ -n "$FILES" ]; then
+              echo "📦 Available toolchain files:"
+              echo "$FILES"
+              echo "toolchain_files=$FILES" >> $GITHUB_OUTPUT
             else
-              echo "❌ Download failed"
-              echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-              exit 1
+              echo "⚠️ No .tar.gz files found in release"
+              echo "exists=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "⚠️  Prebuilt toolchain not found"
-            echo "💡 Please run 'Build Toolchain' workflow first"
-            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No prebuilt toolchain release found: toolchain-$HASH"
+          fi
+      
+      - name: 📥 Download & Restore Prebuilt Toolchain
+        if: steps.toolchain_meta.outputs.exists == 'true' && github.event.inputs.force_clean != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🚀 Downloading prebuilt toolchain..."
+          
+          # 创建临时目录
+          mkdir -p /tmp/toolchain-cache
+          
+          # 下载工具链文件
+          if ! gh release download "toolchain-${{ steps.toolchain_meta.outputs.toolchain_hash }}" \
+            --repo ${{ github.repository }} \
+            --pattern "toolchain-*.tar.gz" \
+            --dir /tmp/toolchain-cache; then
+            echo "❌ Failed to download toolchain files"
             exit 1
+          fi
+          
+          # 查找下载的文件
+          ARCHIVE=$(find /tmp/toolchain-cache -maxdepth 1 -name "toolchain-*.tar.gz" | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "❌ No toolchain archive found after download"
+            ls -la /tmp/toolchain-cache/
+            exit 1
+          fi
+          
+          echo "📦 Found toolchain archive: $(basename "$ARCHIVE")"
+          echo "📊 Archive size: $(du -h "$ARCHIVE" | cut -f1)"
+          
+          # 解压到 OpenWrt 目录
+          echo "🔄 Extracting toolchain to $OPENWRT_PATH..."
+          if ! tar -xzf "$ARCHIVE" --strip-components=1 -C "$OPENWRT_PATH"; then
+            echo "❌ Failed to extract toolchain"
+            exit 1
+          fi
+          
+          cd "$OPENWRT_PATH"
+          
+          # 处理配置文件冲突
+          if [ -f ".config" ]; then
+            echo "📄 Backing up toolchain .config"
+            mv .config .config.toolchain
+          fi
+          
+          # 复制工具链信息文件
+          if [ -f "toolchain-info.txt" ]; then
+            cp toolchain-info.txt "$GITHUB_WORKSPACE/toolchain-info.txt"
+            echo "📋 Toolchain Info (from prebuilt release):"
+            cat "$GITHUB_WORKSPACE/toolchain-info.txt"
+          fi
+          
+          # 验证工具链文件
+          if [ -d "staging_dir/toolchain-x86_64-openwrt-linux-musl" ] || [ -d "build_dir/toolchain-x86_64-openwrt-linux-musl" ]; then
+            echo "✅ Toolchain successfully restored from prebuilt release"
+            echo "PREBUILT_TOOLCHAIN=restored" >> $GITHUB_ENV
+          else
+            echo "⚠️ Toolchain directories not found, will fallback to local build"
+            echo "PREBUILT_TOOLCHAIN=fallback" >> $GITHUB_ENV
+          fi
+          
+          # 清理临时文件
+          rm -rf /tmp/toolchain-cache
+          
+          echo "🎯 Prebuilt toolchain restoration completed"
+      
+      - name: ℹ️ Toolchain Build Mode
+        run: |
+          if [ "${{ steps.toolchain_meta.outputs.exists }}" != "true" ]; then
+            echo "⛏️ 未找到预编译工具链 Release: toolchain-${{ steps.toolchain_meta.outputs.toolchain_hash }}"
+            echo "🔨 将使用本地构建模式"
+            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
+          elif [ "${PREBUILT_TOOLCHAIN}" = "fallback" ]; then
+            echo "⚠️ 预编译工具链下载失败，回退到本地构建"
+            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
+          elif [ "${PREBUILT_TOOLCHAIN}" = "restored" ]; then
+            echo "✅ 成功使用预编译工具链，跳过工具链构建步骤"
           fi
       # ============================================
       # 6.5. 工具链状态检查
