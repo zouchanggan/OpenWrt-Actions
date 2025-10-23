@@ -1,222 +1,492 @@
-name: 🔧 Build & Publish Toolchain (OpenWrt 24.10)
-permissions:
-  contents: write
-  actions: read
+name: 🔧 Build Toolchain
 
 on:
   workflow_dispatch:
     inputs:
-      targets_json:
-        description: '目标平台 JSON 数组（示例：["x86_64","nanopi-r5s"])'
-        default: '["x86_64"]'
+      openwrt_version:
+        description: 'OpenWrt Version'
         required: true
+        default: 'openwrt-24.10'
+        type: choice
+        options:
+          - openwrt-24.10      # 最新稳定版
+          - openwrt-23.05
+          - openwrt-22.03
+          - master
+      target:
+        description: 'Target Platform (e.g., x86/64, ramips/mt7621)'
+        required: true
+        default: 'x86/64'
         type: string
+      force_rebuild:
+        description: 'Force rebuild even if toolchain exists'
+        required: false
+        default: false
+        type: boolean
+  
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * 0'  # 每周日 02:00 UTC
+  
+  repository_dispatch:
+    types: [toolchain-rebuild]
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
-  REPO_BRANCH: openwrt-24.10
+  OPENWRT_VERSION: ${{ github.event.inputs.openwrt_version || 'openwrt-24.10' }}
+  TARGET_PLATFORM: ${{ github.event.inputs.target || 'x86/64' }}
+  TOOLCHAIN_DIR: /workdir/toolchain
   TZ: Asia/Shanghai
-  CACHE_VERSION: v2025-03-01
 
 jobs:
-  build-toolchain:
-    name: 🔧 Build ${{ matrix.target }} Toolchain
+  check-existing:
+    name: 🔍 Check Existing Toolchain
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        # 直接从 JSON 数组输入解析，避免 replace/split 报错
-        target: ${{ fromJson(github.event.inputs.targets_json) }}
-
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      toolchain_hash: ${{ steps.check.outputs.toolchain_hash }}
+    
     steps:
-      - name: ✅ Checkout
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: 🔧 Setup Environment
+      - name: 🔍 Check Existing Toolchain
+        id: check
+        run: |
+          # 计算工具链标识
+          TARGET_HASH=$(echo "${{ env.OPENWRT_VERSION }}-${{ env.TARGET_PLATFORM }}" | md5sum | cut -d' ' -f1)
+          echo "toolchain_hash=$TARGET_HASH" >> $GITHUB_OUTPUT
+          
+          # 检查是否存在
+          if gh release view "toolchain-$TARGET_HASH" >/dev/null 2>&1; then
+            if [ "${{ github.event.inputs.force_rebuild }}" == "true" ]; then
+              echo "🔄 Force rebuild requested"
+              echo "should_build=true" >> $GITHUB_OUTPUT
+            else
+              echo "✅ Toolchain already exists"
+              echo "should_build=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "🆕 Toolchain not found, will build"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-toolchain:
+    name: 🔨 Build Toolchain
+    needs: check-existing
+    if: needs.check-existing.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    
+    steps:
+      # ============================================
+      # 2. 初始化环境（Ubuntu 24.04 优化）
+      # ============================================
+      - name: 🔧 Initialize Environment
         run: |
           sudo timedatectl set-timezone "$TZ"
           echo "BUILD_DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
-          echo "MONTH_KEY=$(date +'%Y%m')" >> $GITHUB_ENV
-          echo "RELEASE_TAG=toolchain-$REPO_BRANCH" >> $GITHUB_ENV
+          
+          # 版本和构建信息
+          VERSION=$(date +'%Y.%m.%d')
+          BUILD_ID="${{ github.run_number }}-${GITHUB_SHA::7}"
+          JOBS=$(nproc)
+    
+          # 插件哈希
+          PLUGINS_HASH=$(echo "${{ github.event.inputs.docker }}-${{ github.event.inputs.ssrp }}-${{ github.event.inputs.passwall }}-${{ github.event.inputs.nikki }}-${{ github.event.inputs.openclash }}-${{ github.event.inputs.lucky }}-${{ github.event.inputs.oaf }}" | sha256sum | cut -c1-8)
+    
+          # 🔥 创建安全的文件名（移除特殊字符）
+          TARGET_SAFE=$(echo "$TARGET" | sed 's/[\/:]/-/g')
+          TARGET_ARCH_SAFE=$(echo "$TARGET_ARCH" | sed 's/[\/:]/-/g')
+    
+          {
+            echo "BUILD_VERSION=$VERSION"
+            echo "BUILD_ID=$BUILD_ID"
+            echo "COMPILE_JOBS=$JOBS"
+            echo "PLUGINS_HASH=$PLUGINS_HASH"
+            echo "WEEK_KEY=$(date +'%Y%U')"
+            echo "FILE_DATE=$(date +'%Y.%m.%d-%H%M')"
+            echo "TARGET_SAFE=$TARGET_SAFE"
+            echo "TARGET_ARCH_SAFE=$TARGET_ARCH_SAFE"
+          } >> $GITHUB_ENV
+          
+          # 创建工作目录
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+                 
+          echo ""
+          echo "📊 System Information:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🖥️  OS: $(lsb_release -d | cut -f2)"
+          echo "🔧 Kernel: $(uname -r)"
+          echo "💻 CPU: $(nproc) cores"
+          echo "💾 Memory: $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "💿 Disk: $(df -h /workdir | awk 'NR==2 {print $4}') available"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "✅ Environment initialized"
 
       - name: 🧹 Free Disk Space
         uses: sbwml/actions@free-disk
-
+        
+      # ============================================
+      # 1. 检出代码
+      # ============================================
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
-
+        
       - name: 📦 Install LLVM
         uses: sbwml/actions@install-llvm
-
-      - name: 📥 Clone OpenWrt
+        
+      # ============================================
+      # 3. 克隆 OpenWrt 源码
+      # ============================================
+      - name: 📦 Clone OpenWrt Source
+        working-directory: /workdir
         run: |
-          rm -rf openwrt
-          git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
+          echo "📦 Cloning OpenWrt ${{ env.OPENWRT_VERSION }}..."
+          
+          git clone --depth 1 --branch ${{ env.OPENWRT_VERSION }} \
+            https://github.com/openwrt/openwrt.git openwrt
+          
+          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+          
           cd openwrt
-          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-          SOURCE_HASH=$(git rev-parse HEAD)
-          echo "SOURCE_HASH=$SOURCE_HASH" >> $GITHUB_ENV
+          echo ""
+          echo "📋 OpenWrt Information:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Version: ${{ env.OPENWRT_VERSION }}"
+          echo "Commit: $(git log -1 --oneline)"
+          echo "Date: $(git log -1 --format=%cd)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "✅ Source code cloned"
 
-      - name: ☁️ Cache Downloads
-        uses: actions/cache@v4
-        with:
-          path: openwrt/dl
-          key: downloads-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-v1
-          restore-keys: |
-            downloads-${{ env.REPO_BRANCH }}-
-
-      - name: ☁️ Cache Feeds & Index (monthly)
-        uses: actions/cache@v4
-        with:
-          path: |
-            openwrt/feeds
-            openwrt/tmp/packagecache
-          key: feeds-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-${{ env.MONTH_KEY }}-v1
-          restore-keys: |
-            feeds-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-
-            feeds-${{ env.REPO_BRANCH }}-
-
-      - name: ☁️ Cache Toolchain (source-based)
-        uses: actions/cache@v4
-        with:
-          path: |
-            openwrt/staging_dir/toolchain-*
-            openwrt/build_dir/toolchain-*
-          key: toolchain-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-${{ env.SOURCE_HASH }}-${{ matrix.target }}-v1
-          restore-keys: |
-            toolchain-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-${{ matrix.target }}-
-            toolchain-${{ env.REPO_BRANCH }}-
-
-      - name: ☁️ Cache Build Host (monthly)
-        uses: actions/cache@v4
-        with:
-          path: openwrt/build_dir/host*
-          key: host-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-${{ env.MONTH_KEY }}-v1
-          restore-keys: |
-            host-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-
-            host-${{ env.REPO_BRANCH }}-
-
-      - name: ☁️ Cache ccache (shared per branch)
-        uses: actions/cache@v4
-        with:
-          path: openwrt/.ccache
-          key: toolchain-ccache-${{ env.CACHE_VERSION }}-${{ env.REPO_BRANCH }}-v1
-          restore-keys: |
-            toolchain-ccache-${{ env.REPO_BRANCH }}-
-
-      - name: 📚 Configure Feeds
+      # ============================================
+      # 4. 更新 Feeds
+      # ============================================
+      - name: 🔄 Update Feeds
+        working-directory: /workdir/openwrt
         run: |
-          cd "$OPENWRT_PATH"
+          echo "🔄 Updating feeds..."
+          
+          # 显示 feeds 配置
+          echo "📋 Feeds configuration:"
+          cat feeds.conf.default
+          echo ""
+          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          echo "✅ Feeds updated"
 
-      - name: ⚙️ Configure Target
+      # ============================================
+      # 5. 生成工具链配置
+      # ============================================
+      - name: ⚙️ Generate Toolchain Config
+        working-directory: /workdir/openwrt
         run: |
-          cd "$OPENWRT_PATH"
-          case "${{ matrix.target }}" in
-            "x86_64")
-              cat > .config <<'EOF'
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
+          echo "⚙️ Generating toolchain configuration..."
+          
+          # 解析目标平台
+          TARGET=$(echo ${{ env.TARGET_PLATFORM }} | cut -d'/' -f1)
+          SUBTARGET=$(echo ${{ env.TARGET_PLATFORM }} | cut -d'/' -f2)
+          
+          # 转换为大写（用于配置）
+          TARGET_UPPER=$(echo $TARGET | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          SUBTARGET_UPPER=$(echo $SUBTARGET | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          
+          # 生成最小配置（OpenWrt 24.10 优化）
+          cat > .config <<EOF
+          CONFIG_TARGET_${TARGET}=y
+          CONFIG_TARGET_${TARGET}_${SUBTARGET}=y
+          
+          # 工具链选项
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+          CONFIG_CCACHE=y
+          
+          # 使用 LLVM/Clang（24.10 新特性）
+          CONFIG_USE_LLVM_BUILD=y
+          CONFIG_USE_LLVM_HOST=y
+          
+          # 优化选项
+          CONFIG_TARGET_OPTIONS=y
+          CONFIG_TARGET_OPTIMIZATION="-O2 -pipe -march=native"
+          
+          # 禁用不必要的包
+          # CONFIG_ALL_KMODS is not set
+          # CONFIG_ALL_NONSHARED is not set
           EOF
-              ;;
-            "nanopi-r5s")
-              cat > .config <<'EOF'
-          CONFIG_TARGET_rockchip=y
-          CONFIG_TARGET_rockchip_armv8=y
-          EOF
-              ;;
-            *)
-              echo "::error::未知目标: ${{ matrix.target }}"
-              exit 1
-              ;;
-          esac
+          
+          # 展开配置
           make defconfig
+          
+          echo ""
+          echo "📋 Toolchain configuration:"
+          grep "^CONFIG_TARGET" .config | head -10
+          echo "✅ Configuration generated"
 
-      - name: 🔧 Setup ccache
+      # ============================================
+      # 6. 下载依赖
+      # ============================================
+      - name: 📥 Download Dependencies
+        working-directory: /workdir/openwrt
         run: |
-          cd "$OPENWRT_PATH"
-          export USE_CCACHE=1
-          export CCACHE_DIR="$PWD/.ccache"
-          export CCACHE_BASEDIR="$PWD"
-          export PATH="/usr/lib/ccache:$PATH"
-          mkdir -p "$CCACHE_DIR"
-          ccache --set-config=max_size=15G
-          ccache --set-config=max_files=250000
-          ccache --set-config=compression=true
-          ccache --set-config=compiler_check=content
-          ccache --set-config=hash_dir=false
-          ccache -s || true
-
-      - name: 🧰 Install GitHub CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh
-
-      - name: 🔍 Skip If Already Published
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          ASSET="toolchain-${{ matrix.target }}-${{ env.SOURCE_HASH }}.tar.gz"
-          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$ASSET"; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "✅ Found existing $ASSET. Skip build."
+          echo "📥 Downloading dependencies..."
+          
+          make download -j$(nproc) V=s
+          
+          # 检查下载失败的文件
+          echo ""
+          echo "🔍 Checking for failed downloads..."
+          FAILED_COUNT=$(find dl -size 0 2>/dev/null | wc -l)
+          if [ $FAILED_COUNT -gt 0 ]; then
+            echo "⚠️  Found $FAILED_COUNT failed downloads:"
+            find dl -size 0 -exec ls -l {} \;
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "✅ All downloads successful"
           fi
+          
+          echo ""
+          echo "📊 Download statistics:"
+          echo "Total files: $(find dl -type f | wc -l)"
+          echo "Total size: $(du -sh dl | cut -f1)"
+          echo ""
+          echo "✅ Dependencies downloaded"
 
+      # ============================================
+      # 7. 编译工具链
+      # ============================================
       - name: 🔨 Build Toolchain
-        if: steps.check.outputs.skip == 'false'
+        working-directory: /workdir/openwrt
         run: |
-          cd "$OPENWRT_PATH"
-          export USE_CCACHE=1
-          export CCACHE_DIR="$PWD/.ccache"
-          make -j$(nproc) tools/install
-          make -j$(nproc) toolchain/install
+          echo "╔════════════════════════════════════════════╗"
+          echo "║         🔨 Building Toolchain              ║"
+          echo "║            OpenWrt 24.10                   ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          echo "⏰ Start time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "🖥️  CPU cores: $(nproc)"
+          echo ""
+          
+          START_TIME=$(date +%s)
+          
+          # 编译工具链
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔧 Phase 1: Building tools..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔨 Phase 2: Building toolchain..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+          
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo ""
+          echo "╔════════════════════════════════════════════╗"
+          echo "║         ✅ Toolchain Build Complete        ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          echo "⏱️  Duration: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
+          echo "🕐 End time: $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # ccache 统计
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 ccache Statistics"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          ccache -s
 
-      - name: 📦 Package Toolchain
-        if: steps.check.outputs.skip == 'false'
-        id: package
+      # ============================================
+      # 8. 生成工具链信息
+      # ============================================
+      - name: 📋 Generate Toolchain Info
+        working-directory: /workdir/openwrt
         run: |
-          cd "$OPENWRT_PATH"
-          OUT="toolchain-${{ matrix.target }}-${{ env.SOURCE_HASH }}.tar.gz"
-          tar -czf "../$OUT" staging_dir/toolchain-* build_dir/toolchain-*
-          echo "artifact_path=../$OUT" >> $GITHUB_OUTPUT
-
-      - name: 🚀 Upload Toolchain (hashed)
-        if: steps.check.outputs.skip == 'false'
-        uses: ncipollo/release-action@v1.14.0
-        with:
-          name: Toolchain • ${{ env.REPO_BRANCH }} • ${{ env.BUILD_DATE }}
-          allowUpdates: true
-          tag: ${{ env.RELEASE_TAG }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: ${{ steps.package.outputs.artifact_path }}
-
-      - name: 🔁 Ensure 'latest' Alias
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          HASHED="toolchain-${{ matrix.target }}-${{ env.SOURCE_HASH }}.tar.gz"
-          LATEST="toolchain-${{ matrix.target }}-latest.tar.gz"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            if ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$LATEST"; then
-              [ -f "$HASHED" ] || gh release download "$TAG" -p "$HASHED" -D .
-              cp "$HASHED" "$LATEST"
-              gh release upload "$TAG" "$LATEST" --clobber
-            fi
+          echo "📋 Generating toolchain information..."
+          
+          # 获取工具链路径
+          TOOLCHAIN_PATH=$(find staging_dir -type d -name "toolchain-*" | head -1)
+          
+          # 获取编译器版本
+          if [ -d "$TOOLCHAIN_PATH" ]; then
+            GCC_VERSION=$($TOOLCHAIN_PATH/bin/*-gcc --version 2>/dev/null | head -1 || echo "N/A")
+            BINUTILS_VERSION=$($TOOLCHAIN_PATH/bin/*-ld --version 2>/dev/null | head -1 || echo "N/A")
+            CLANG_VERSION=$(clang --version 2>/dev/null | head -1 || echo "N/A")
+          else
+            GCC_VERSION="N/A"
+            BINUTILS_VERSION="N/A"
+            CLANG_VERSION="N/A"
           fi
+          
+          # 生成信息文件
+          cat > toolchain-info.txt <<EOF
+          ╔════════════════════════════════════════════╗
+          ║         Toolchain Information              ║
+          ╚════════════════════════════════════════════╝
+          
+          OpenWrt Version: ${{ env.OPENWRT_VERSION }}
+          Target Platform: ${{ env.TARGET_PLATFORM }}
+          Build Date: $(date '+%Y-%m-%d %H:%M:%S %Z')
+          Build Host: Ubuntu 24.04 LTS
+          Kernel: $(uname -r)
+          Toolchain Hash: ${{ needs.check-existing.outputs.toolchain_hash }}
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Compiler Information
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          GCC Version:
+          $GCC_VERSION
+          
+          Binutils Version:
+          $BINUTILS_VERSION
+          
+          Clang Version:
+          $CLANG_VERSION
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Directory Structure
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          Staging Directory: $(du -sh staging_dir 2>/dev/null | cut -f1)
+          Build Directory: $(du -sh build_dir 2>/dev/null | cut -f1)
+          
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Build Features (OpenWrt 24.10)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          
+          ✅ LLVM/Clang Support
+          ✅ ccache Enabled
+          ✅ Optimized Build Flags
+          ✅ Multi-threaded Compilation
+          
+          ═══════════════════════════════════════════════
+          EOF
+          
+          cat toolchain-info.txt
 
-      - name: 📊 Build Summary
+      # ============================================
+      # 9. 打包工具链
+      # ============================================
+      - name: 📦 Package Toolchain
+        working-directory: /workdir/openwrt
         run: |
-          echo "Target: ${{ matrix.target }}"
-          echo "Branch: ${{ env.REPO_BRANCH }}"
-          echo "Source hash: ${{ env.SOURCE_HASH }}"
-          ls -lh .. | grep toolchain || true
+          echo "╔════════════════════════════════════════════╗"
+          echo "║         📦 Packaging Toolchain             ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          
+          # 创建工具链目录
+          mkdir -p ${{ env.TOOLCHAIN_DIR }}
+          
+          # 复制必要文件
+          echo "📋 Copying files..."
+          cp -r staging_dir ${{ env.TOOLCHAIN_DIR }}/
+          cp -r build_dir/toolchain-* ${{ env.TOOLCHAIN_DIR }}/ 2>/dev/null || true
+          cp -r build_dir/host ${{ env.TOOLCHAIN_DIR }}/ 2>/dev/null || true
+          cp .config ${{ env.TOOLCHAIN_DIR }}/
+          cp toolchain-info.txt ${{ env.TOOLCHAIN_DIR }}/
+          
+          # 打包
+          echo "🗜️  Compressing with maximum compression..."
+          cd /workdir
+          PACKAGE_NAME="toolchain-${{ env.OPENWRT_VERSION }}-${{ env.TARGET_PLATFORM }}"
+          PACKAGE_NAME="${PACKAGE_NAME//\//-}.tar.gz"
+          
+          # 使用 pigz 进行多线程压缩（如果可用）
+          if command -v pigz &> /dev/null; then
+            tar -I "pigz -9" -cf "$PACKAGE_NAME" toolchain/
+          else
+            tar -czf "$PACKAGE_NAME" toolchain/
+          fi
+          
+          # 计算校验和
+          SHA256=$(sha256sum "$PACKAGE_NAME" | cut -d' ' -f1)
+          MD5=$(md5sum "$PACKAGE_NAME" | cut -d' ' -f1)
+          
+          # 显示信息
+          echo ""
+          echo "╔════════════════════════════════════════════╗"
+          echo "║         📊 Package Information             ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          ls -lh "$PACKAGE_NAME"
+          echo ""
+          echo "📦 Package name: $PACKAGE_NAME"
+          echo "📁 Package size: $(du -sh "$PACKAGE_NAME" | cut -f1)"
+          echo "🔐 SHA256: $SHA256"
+          echo "🔐 MD5: $MD5"
+          echo ""
+          
+          # 保存信息
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+          echo "SHA256=$SHA256" >> $GITHUB_ENV
+          echo "MD5=$MD5" >> $GITHUB_ENV
+
+      # ============================================
+      # 10. 上传 Artifact
+      # ============================================
+      - name: 📦 Upload Toolchain Artifact
+        if: steps.build_toolchain.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-${{ env.REPO_BRANCH }}-${{ env.TARGET_ARCH_SAFE }}
+          path: ${{ env.TOOLCHAIN_PATH }}
+          retention-days: 7
+          compression-level: 9
+
+      # ============================================
+      # 11. 创建 Release
+      # ============================================
+      - name: 🚀 Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: toolchain-${{ needs.check-existing.outputs.toolchain_hash }}
+          name: 🔧 Toolchain ${{ env.OPENWRT_VERSION }} - ${{ env.TARGET_PLATFORM }}
+          body: |
+            ## 🔧 预编译工具链
+            
+            ### 📋 基本信息
+            - **OpenWrt 版本**: `${{ env.OPENWRT_VERSION }}` ⭐ 最新稳定版
+            - **目标平台**: `${{ env.TARGET_PLATFORM }}`
+            - **构建环境**: Ubuntu 24.04 LTS
+            - **构建时间**: `${{ github.event.head_commit.timestamp }}`
+            - **工具链哈希**: `${{ needs.check-existing.outputs.toolchain_hash }}`
+            
+            ### 📦 文件信息
+            - **文件名**: `${{ env.PACKAGE_NAME }}`
+            - **大小**: 见下方附件
+            - **SHA256**: `${{ env.SHA256 }}`
+            - **MD5**: `${{ env.MD5 }}`
+            
+            ### ✨ 新特性 (OpenWrt 24.10)
+            - ✅ LLVM/Clang 编译器支持
+            - ✅ 优化的构建标志
+            - ✅ 改进的 ccache 集成
+            - ✅ 更快的编译速度
+            
+            ### 🚀 使用方法
+            
+            #### 方法 1：在 GitHub Actions 中使用
+            ```yaml
+            - name: 📥 Download Toolchain
+              run: |
+                gh release download toolchain-${{ needs.check-existing.outputs.toolchain_hash }} \
+                  --pattern "toolchain-*.tar.gz" \
+                  --dir /tmp/toolchain
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            
+            - name: 📦 Extract Toolchain
+              run: |
+                cd $OPENWRT_PATH
+                tar -xzf /tmp/toolchain/toolchain-*.tar.gz -C /tmp/
+                cp -r /tmp/toolchain/* ./
