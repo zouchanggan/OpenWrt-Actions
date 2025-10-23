@@ -279,13 +279,13 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔧 Phase 1: Building tools..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
+          make -j$(nproc) tools/install
           
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔨 Phase 2: Building toolchain..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+          make -j$(nproc) toolchain/install
           
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
