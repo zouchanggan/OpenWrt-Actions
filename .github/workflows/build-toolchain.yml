@@ -79,6 +79,12 @@ jobs:
     
     steps:
       # ============================================
+      # 1. 检出代码
+      # ============================================
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # ============================================
       # 2. 初始化环境（Ubuntu 24.04 优化）
       # ============================================
       - name: 🔧 Initialize Environment
@@ -90,23 +96,17 @@ jobs:
           VERSION=$(date +'%Y.%m.%d')
           BUILD_ID="${{ github.run_number }}-${GITHUB_SHA::7}"
           JOBS=$(nproc)
-    
-          # 插件哈希
-          PLUGINS_HASH=$(echo "${{ github.event.inputs.docker }}-${{ github.event.inputs.ssrp }}-${{ github.event.inputs.passwall }}-${{ github.event.inputs.nikki }}-${{ github.event.inputs.openclash }}-${{ github.event.inputs.lucky }}-${{ github.event.inputs.oaf }}" | sha256sum | cut -c1-8)
-    
+          
           # 🔥 创建安全的文件名（移除特殊字符）
-          TARGET_SAFE=$(echo "$TARGET" | sed 's/[\/:]/-/g')
-          TARGET_ARCH_SAFE=$(echo "$TARGET_ARCH" | sed 's/[\/:]/-/g')
-    
+          TARGET_SAFE=$(echo "${{ env.TARGET_PLATFORM }}" | sed 's/[\/:]/-/g')
+          
           {
             echo "BUILD_VERSION=$VERSION"
             echo "BUILD_ID=$BUILD_ID"
             echo "COMPILE_JOBS=$JOBS"
-            echo "PLUGINS_HASH=$PLUGINS_HASH"
             echo "WEEK_KEY=$(date +'%Y%U')"
             echo "FILE_DATE=$(date +'%Y.%m.%d-%H%M')"
             echo "TARGET_SAFE=$TARGET_SAFE"
-            echo "TARGET_ARCH_SAFE=$TARGET_ARCH_SAFE"
           } >> $GITHUB_ENV
           
           # 创建工作目录
@@ -127,12 +127,6 @@ jobs:
 
       - name: 🧹 Free Disk Space
         uses: sbwml/actions@free-disk
-        
-      # ============================================
-      # 1. 检出代码
-      # ============================================
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
         
       - name: 🛠️ Build System Setup
         uses: sbwml/actions@openwrt-build-setup
@@ -373,7 +367,6 @@ jobs:
           EOF
           
           cat toolchain-info.txt
-
       # ============================================
       # 9. 打包工具链
       # ============================================
@@ -431,28 +424,27 @@ jobs:
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
           echo "SHA256=$SHA256" >> $GITHUB_ENV
           echo "MD5=$MD5" >> $GITHUB_ENV
-
       # ============================================
       # 10. 上传 Artifact
       # ============================================
       - name: 📦 Upload Toolchain Artifact
-        if: success()  # ⭐ 简化条件判断
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: toolchain-${{ env.OPENWRT_VERSION }}-${{ env.TARGET_PLATFORM }}
-          path: /workdir/${{ env.PACKAGE_NAME }}  # ⭐ 修正路径
+          name: toolchain-${{ env.OPENWRT_VERSION }}-${{ env.TARGET_SAFE }}
+          path: /workdir/${{ env.PACKAGE_NAME }}
           retention-days: 7
           compression-level: 0
-
       # ============================================
       # 11. 创建 Release
       # ============================================
       - name: 🚀 Create Release
+        if: success()
         uses: softprops/action-gh-release@v1
         with:
           tag_name: toolchain-${{ needs.check-existing.outputs.toolchain_hash }}
           name: 🔧 Toolchain ${{ env.OPENWRT_VERSION }} - ${{ env.TARGET_PLATFORM }}
-          files: /workdir/${{ env.PACKAGE_NAME }}  # ⭐ 添加这一行
+          files: /workdir/${{ env.PACKAGE_NAME }}
           body: |
             ## 🔧 预编译工具链
             
@@ -460,12 +452,11 @@ jobs:
             - **OpenWrt 版本**: `${{ env.OPENWRT_VERSION }}` ⭐ 最新稳定版
             - **目标平台**: `${{ env.TARGET_PLATFORM }}`
             - **构建环境**: Ubuntu 24.04 LTS
-            - **构建时间**: `${{ github.event.head_commit.timestamp }}`
+            - **构建时间**: `${{ env.BUILD_DATE }}`
             - **工具链哈希**: `${{ needs.check-existing.outputs.toolchain_hash }}`
             
             ### 📦 文件信息
             - **文件名**: `${{ env.PACKAGE_NAME }}`
-            - **大小**: 见下方附件
             - **SHA256**: `${{ env.SHA256 }}`
             - **MD5**: `${{ env.MD5 }}`
             
