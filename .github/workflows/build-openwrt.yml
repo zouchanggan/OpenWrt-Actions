@@ -236,106 +236,124 @@ jobs:
       # ============================================
       # 6. 下载并应用预编译工具链
       # ============================================
-      - name: 🔧 Download Prebuilt Toolchain
+      - name: 📥 Download Prebuilt Toolchain
+        if: github.event.inputs.use_prebuilt_toolchain == 'true'
         id: download_toolchain
+        continue-on-error: true
         run: |
           echo "╔════════════════════════════════════════════╗"
-          echo "║      🔧 Downloading Prebuilt Toolchain     ║"
+          echo "║   📥 Downloading Prebuilt Toolchain        ║"
           echo "╚════════════════════════════════════════════╝"
           echo ""
           
-          # 计算工具链哈希（与 build-toolchain.yml 保持一致）
-          TARGET_PLATFORM="x86/64"
-          TOOLCHAIN_HASH=$(echo "${{ env.REPO_BRANCH }}-${TARGET_PLATFORM}" | md5sum | cut -d' ' -f1)
-          TOOLCHAIN_TAG="toolchain-${TOOLCHAIN_HASH}"
+          # 计算工具链哈希
+          TOOLCHAIN_HASH=$(echo -n "${{ env.REPO_URL }}|${{ env.REPO_BRANCH }}|${{ env.DEVICE_TARGET }}|${{ env.DEVICE_SUBTARGET }}" | sha256sum | cut -d' ' -f1 | cut -c1-16)
+          echo "🔑 Toolchain Hash: $TOOLCHAIN_HASH"
+          echo "TOOLCHAIN_HASH=$TOOLCHAIN_HASH" >> $GITHUB_ENV
           
-          echo "🔍 Looking for toolchain: $TOOLCHAIN_TAG"
+          # 构建缓存键
+          TOOLCHAIN_KEY="toolchain-${{ env.SOURCE_KEY }}-${TOOLCHAIN_HASH}"
+          echo "🔑 Cache Key: $TOOLCHAIN_KEY"
           
-          # 检查工具链是否存在
-          if gh release view "$TOOLCHAIN_TAG" >/dev/null 2>&1; then
+          # 尝试从 GitHub Releases 下载
+          echo "🔍 Looking for toolchain: toolchain-${TOOLCHAIN_HASH}"
+          
+          # 获取最新的工具链 release
+          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/toolchain-${TOOLCHAIN_HASH}"
+          
+          if curl -s -f -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" > /dev/null 2>&1; then
             echo "✅ Found prebuilt toolchain!"
             
-            # 下载工具链
+            # 下载工具链包
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/toolchain-${TOOLCHAIN_HASH}/toolchain.tar.zst"
+            
+            echo "📦 Downloading toolchain package..."
             mkdir -p /tmp/toolchain-download
-            cd /tmp/toolchain-download
             
-            echo "📥 Downloading toolchain package..."
-            gh release download "$TOOLCHAIN_TAG" \
-              --pattern "toolchain-*.tar.gz" \
-              --dir . || {
-                echo "❌ Download failed, will build from scratch"
-                echo "use_toolchain=false" >> $GITHUB_OUTPUT
-                exit 0
-              }
-            
-            # 解压工具链
-            echo "📦 Extracting toolchain..."
-            TOOLCHAIN_FILE=$(ls toolchain-*.tar.gz | head -1)
-            
-            if [ -f "$TOOLCHAIN_FILE" ]; then
-              tar -xzf "$TOOLCHAIN_FILE" -C /tmp/
+            if wget -q --show-progress \
+                 --header="Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                 -O /tmp/toolchain-download/toolchain.tar.zst \
+                 "$DOWNLOAD_URL"; then
               
-              # 复制到 OpenWrt 目录
-              echo "📋 Applying toolchain to OpenWrt..."
-              cd "${{ env.OPENWRT_PATH }}"
+              echo "✅ Download successful!"
+              echo "📊 Package size: $(du -h /tmp/toolchain-download/toolchain.tar.zst | cut -f1)"
               
-              # 复制 staging_dir
-              if [ -d "/tmp/toolchain/staging_dir" ]; then
-                mkdir -p staging_dir
-                cp -r /tmp/toolchain/staging_dir/* staging_dir/ 2>/dev/null || true
-                echo "✅ Copied staging_dir"
-              fi
+              # 解压工具链到 OpenWrt 目录
+              echo "📦 Extracting toolchain..."
+              cd "$OPENWRT_PATH"
               
-              # 复制 build_dir/toolchain
-              if [ -d "/tmp/toolchain/build_dir" ]; then
-                mkdir -p build_dir
-                cp -r /tmp/toolchain/build_dir/toolchain-* build_dir/ 2>/dev/null || true
-                echo "✅ Copied toolchain build files"
-              fi
-              
-              # 复制 build_dir/host
-              if [ -d "/tmp/toolchain/build_dir/host" ]; then
-                cp -r /tmp/toolchain/build_dir/host build_dir/ 2>/dev/null || true
-                echo "✅ Copied host build files"
-              fi
-              
-              # 验证工具链
-              echo ""
-              echo "🔍 Verifying toolchain..."
-              TOOLCHAIN_PATH=$(find staging_dir -type d -name "toolchain-*" | head -1)
-              
-              if [ -d "$TOOLCHAIN_PATH" ]; then
-                echo "✅ Toolchain found at: $TOOLCHAIN_PATH"
+              if tar -I zstd -xf /tmp/toolchain-download/toolchain.tar.zst; then
+                echo "✅ Toolchain extracted successfully!"
                 
-                # 测试编译器
-                if [ -f "$TOOLCHAIN_PATH/bin/"*-gcc ]; then
-                  GCC_VERSION=$($TOOLCHAIN_PATH/bin/*-gcc --version 2>/dev/null | head -1)
-                  echo "✅ GCC: $GCC_VERSION"
+                # 验证关键目录
+                if [ -d "staging_dir/toolchain-x86_64_gcc-13.3.0_musl" ] || \
+                   [ -d "staging_dir/toolchain-"* ]; then
+                  echo "✅ Toolchain validation passed!"
+                  echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
+                  echo "status=success" >> $GITHUB_OUTPUT
+                  
+                  # 显示工具链信息
+                  echo ""
+                  echo "📋 Toolchain Contents:"
+                  ls -lh staging_dir/ | head -10
+                  
+                  # 清理下载文件
+                  rm -rf /tmp/toolchain-download
+                  
+                  echo ""
+                  echo "🎉 Prebuilt toolchain ready!"
+                  echo "⚡ This will save ~20-30 minutes of build time!"
+                  exit 0
+                else
+                  echo "❌ Toolchain validation failed!"
+                  echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+                  exit 1
                 fi
-                
-                echo "use_toolchain=true" >> $GITHUB_OUTPUT
-                echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
-                
-                echo ""
-                echo "╔════════════════════════════════════════════╗"
-                echo "║   ✅ Prebuilt Toolchain Applied!          ║"
-                echo "╚════════════════════════════════════════════╝"
               else
-                echo "⚠️  Toolchain verification failed"
-                echo "use_toolchain=false" >> $GITHUB_OUTPUT
+                echo "❌ Failed to extract toolchain"
+                echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+                exit 1
               fi
             else
-              echo "❌ Toolchain file not found"
-              echo "use_toolchain=false" >> $GITHUB_OUTPUT
+              echo "❌ Download failed"
+              echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+              exit 1
             fi
           else
-            echo "ℹ️  Prebuilt toolchain not found, will build from scratch"
-            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Prebuilt toolchain not found"
+            echo "💡 Please run 'Build Toolchain' workflow first"
+            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+            exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
+      # ============================================
+      # 6.5. 工具链状态检查
+      # ============================================
+      - name: 🔍 Check Toolchain Status
+        if: always()
+        run: |
+          echo "╔════════════════════════════════════════════╗"
+          echo "║      🔍 Toolchain Status Check             ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          
+          if [ "${{ steps.download_toolchain.outcome }}" == "success" ]; then
+            echo "✅ Status: Prebuilt toolchain loaded"
+            echo "⚡ Build time will be reduced by ~25 minutes"
+            echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
+          else
+            echo "ℹ️  Status: Will build toolchain from source"
+            echo "⏱️  This will take additional ~25 minutes"
+            echo "💡 Tip: Run 'Build Toolchain' workflow to speed up future builds"
+            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+          fi
+          
+          echo ""
+          echo "📊 Current staging_dir status:"
+          if [ -d "$OPENWRT_PATH/staging_dir" ]; then
+            ls -lh "$OPENWRT_PATH/staging_dir/" | head -10
+          else
+            echo "  (empty - will be built during compilation)"
+          fi
       # ============================================
       # 7. 🔥 多层缓存策略（保持原有7个缓存）
       # ============================================
