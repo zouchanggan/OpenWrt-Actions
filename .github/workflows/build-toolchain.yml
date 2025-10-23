@@ -261,6 +261,7 @@ jobs:
       # 7. 编译工具链
       # ============================================
       - name: 🔨 Build Toolchain
+        id: build_toolchain
         working-directory: /workdir/openwrt
         run: |
           echo "╔════════════════════════════════════════════╗"
@@ -435,13 +436,13 @@ jobs:
       # 10. 上传 Artifact
       # ============================================
       - name: 📦 Upload Toolchain Artifact
-        if: steps.build_toolchain.outcome == 'success'
+        if: success()  # ⭐ 简化条件判断
         uses: actions/upload-artifact@v4
         with:
-          name: toolchain-${{ env.REPO_BRANCH }}-${{ env.TARGET_ARCH_SAFE }}
-          path: ${{ env.TOOLCHAIN_PATH }}
+          name: toolchain-${{ env.OPENWRT_VERSION }}-${{ env.TARGET_PLATFORM }}
+          path: /workdir/${{ env.PACKAGE_NAME }}  # ⭐ 修正路径
           retention-days: 7
-          compression-level: 9
+          compression-level: 0
 
       # ============================================
       # 11. 创建 Release
@@ -451,6 +452,7 @@ jobs:
         with:
           tag_name: toolchain-${{ needs.check-existing.outputs.toolchain_hash }}
           name: 🔧 Toolchain ${{ env.OPENWRT_VERSION }} - ${{ env.TARGET_PLATFORM }}
+          files: /workdir/${{ env.PACKAGE_NAME }}  # ⭐ 添加这一行
           body: |
             ## 🔧 预编译工具链
             
