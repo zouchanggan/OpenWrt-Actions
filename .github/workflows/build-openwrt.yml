@@ -234,7 +234,7 @@ jobs:
           } >> $GITHUB_ENV
 
       # ============================================
-      # 6. 下载并应用预编译工具链
+      # 6. 下载并应用预编译工具链（修正版）
       # ============================================
       - name: 🧮 Resolve Toolchain Release
         id: toolchain_meta
@@ -258,7 +258,6 @@ jobs:
             if [ -n "$FILES" ]; then
               echo "📦 Available toolchain files:"
               echo "$FILES"
-              echo "toolchain_files=$FILES" >> $GITHUB_OUTPUT
             else
               echo "⚠️ No .tar.gz files found in release"
               echo "exists=false" >> $GITHUB_OUTPUT
@@ -269,6 +268,7 @@ jobs:
           fi
       
       - name: 📥 Download & Restore Prebuilt Toolchain
+        id: download_toolchain
         if: steps.toolchain_meta.outputs.exists == 'true' && github.event.inputs.force_clean != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -284,7 +284,8 @@ jobs:
             --pattern "toolchain-*.tar.gz" \
             --dir /tmp/toolchain-cache; then
             echo "❌ Failed to download toolchain files"
-            exit 1
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
           # 查找下载的文件
@@ -292,47 +293,121 @@ jobs:
           if [ -z "$ARCHIVE" ]; then
             echo "❌ No toolchain archive found after download"
             ls -la /tmp/toolchain-cache/
-            exit 1
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
           echo "📦 Found toolchain archive: $(basename "$ARCHIVE")"
           echo "📊 Archive size: $(du -h "$ARCHIVE" | cut -f1)"
           
-          # 解压到 OpenWrt 目录
+          # 🔥 关键修正：直接解压到 openwrt 目录，不使用 --strip-components
           echo "🔄 Extracting toolchain to $OPENWRT_PATH..."
-          if ! tar -xzf "$ARCHIVE" --strip-components=1 -C "$OPENWRT_PATH"; then
-            echo "❌ Failed to extract toolchain"
-            exit 1
-          fi
-          
           cd "$OPENWRT_PATH"
           
-          # 处理配置文件冲突
+          # 先备份现有的 .config（如果存在）
           if [ -f ".config" ]; then
-            echo "📄 Backing up toolchain .config"
-            mv .config .config.toolchain
+            echo "📄 Backing up existing .config"
+            mv .config .config.backup
           fi
           
-          # 复制工具链信息文件
+          # 解压工具链（保持原始目录结构）
+          if ! tar -xzf "$ARCHIVE" -C "$OPENWRT_PATH"; then
+            echo "❌ Failed to extract toolchain"
+            [ -f ".config.backup" ] && mv .config.backup .config
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # 恢复 .config
+          if [ -f ".config.backup" ]; then
+            mv .config.backup .config
+          fi
+          
+          # 显示工具链信息
           if [ -f "toolchain-info.txt" ]; then
-            cp toolchain-info.txt "$GITHUB_WORKSPACE/toolchain-info.txt"
             echo "📋 Toolchain Info (from prebuilt release):"
-            cat "$GITHUB_WORKSPACE/toolchain-info.txt"
+            cat "toolchain-info.txt"
           fi
           
-          # 验证工具链文件
-          if [ -d "staging_dir/toolchain-x86_64-openwrt-linux-musl" ] || [ -d "build_dir/toolchain-x86_64-openwrt-linux-musl" ]; then
-            echo "✅ Toolchain successfully restored from prebuilt release"
-            echo "PREBUILT_TOOLCHAIN=restored" >> $GITHUB_ENV
-          else
-            echo "⚠️ Toolchain directories not found, will fallback to local build"
-            echo "PREBUILT_TOOLCHAIN=fallback" >> $GITHUB_ENV
+          # 🔥 修正验证逻辑：检查实际的工具链目录
+          echo ""
+          echo "🔍 Verifying toolchain directories..."
+          
+          TOOLCHAIN_FOUND=false
+          
+          # 检查 staging_dir 中的工具链
+          if [ -d "staging_dir" ]; then
+            echo "📁 Contents of staging_dir:"
+            ls -la staging_dir/ | head -20
+            
+            # 查找工具链目录（可能有不同的命名）
+            TOOLCHAIN_DIRS=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null || true)
+            if [ -n "$TOOLCHAIN_DIRS" ]; then
+              echo "✅ Found toolchain directories in staging_dir:"
+              echo "$TOOLCHAIN_DIRS"
+              TOOLCHAIN_FOUND=true
+            fi
+          fi
+          
+          # 检查 build_dir 中的工具链
+          if [ -d "build_dir" ]; then
+            echo "📁 Contents of build_dir:"
+            ls -la build_dir/ | head -20
+            
+            TOOLCHAIN_BUILD_DIRS=$(find build_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null || true)
+            if [ -n "$TOOLCHAIN_BUILD_DIRS" ]; then
+              echo "✅ Found toolchain directories in build_dir:"
+              echo "$TOOLCHAIN_BUILD_DIRS"
+              TOOLCHAIN_FOUND=true
+            fi
           fi
           
           # 清理临时文件
           rm -rf /tmp/toolchain-cache
           
-          echo "🎯 Prebuilt toolchain restoration completed"
+          if [ "$TOOLCHAIN_FOUND" = true ]; then
+            echo ""
+            echo "✅ Toolchain successfully restored from prebuilt release"
+            echo "use_toolchain=true" >> $GITHUB_OUTPUT
+            echo "PREBUILT_TOOLCHAIN=restored" >> $GITHUB_ENV
+            echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
+          else
+            echo ""
+            echo "⚠️ Toolchain directories not found after extraction"
+            echo "📊 Full directory structure:"
+            find staging_dir build_dir -maxdepth 2 -type d 2>/dev/null | head -30 || true
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            echo "PREBUILT_TOOLCHAIN=fallback" >> $GITHUB_ENV
+            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+          fi
+      
+      - name: ℹ️ Toolchain Build Mode
+        run: |
+          echo "╔════════════════════════════════════════════╗"
+          echo "║      🔧 Toolchain Configuration            ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          
+          if [ "${{ steps.toolchain_meta.outputs.exists }}" != "true" ]; then
+            echo "⛏️ 未找到预编译工具链 Release: toolchain-${{ steps.toolchain_meta.outputs.toolchain_hash }}"
+            echo "🔨 将使用本地构建模式"
+            echo "⏱️  预计额外耗时: ~25 分钟"
+            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
+            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+          elif [ "${{ steps.download_toolchain.outputs.use_toolchain }}" = "true" ]; then
+            echo "✅ 成功使用预编译工具链"
+            echo "⚡ 预计节省时间: ~25 分钟"
+            echo "📦 工具链哈希: ${{ steps.toolchain_meta.outputs.toolchain_hash }}"
+          else
+            echo "⚠️ 预编译工具链下载/验证失败，回退到本地构建"
+            echo "🔨 将从源码构建工具链"
+            echo "⏱️  预计额外耗时: ~25 分钟"
+            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
+            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
+          fi
+          
+          echo ""
+          echo "💡 提示: 运行 'Build Toolchain' workflow 可为后续构建生成预编译工具链"
       
       - name: ℹ️ Toolchain Build Mode
         run: |
@@ -357,23 +432,24 @@ jobs:
           echo "╚════════════════════════════════════════════╝"
           echo ""
           
-          if [ "${{ steps.download_toolchain.outcome }}" == "success" ]; then
+          if [ "${{ steps.download_toolchain.outputs.use_toolchain }}" == "true" ]; then
             echo "✅ Status: Prebuilt toolchain loaded"
             echo "⚡ Build time will be reduced by ~25 minutes"
-            echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
+            echo "📦 Toolchain Hash: ${{ steps.toolchain_meta.outputs.toolchain_hash }}"
           else
             echo "ℹ️  Status: Will build toolchain from source"
             echo "⏱️  This will take additional ~25 minutes"
             echo "💡 Tip: Run 'Build Toolchain' workflow to speed up future builds"
-            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
           fi
           
           echo ""
           echo "📊 Current staging_dir status:"
           if [ -d "$OPENWRT_PATH/staging_dir" ]; then
-            ls -lh "$OPENWRT_PATH/staging_dir/" | head -10
+            echo "Total size: $(du -sh "$OPENWRT_PATH/staging_dir" 2>/dev/null | cut -f1 || echo 'N/A')"
+            echo "Contents:"
+            ls -lh "$OPENWRT_PATH/staging_dir/" 2>/dev/null | head -10 || echo "  (empty)"
           else
-            echo "  (empty - will be built during compilation)"
+            echo "  (not created yet - will be built during compilation)"
           fi
       # ============================================
       # 7. 🔥 多层缓存策略（保持原有7个缓存）
