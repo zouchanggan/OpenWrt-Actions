@@ -644,17 +644,12 @@ jobs:
           cp "${{ github.workspace }}/$CONFIG_FILE" .config
           
           # 执行自定义脚本
-          if [ -d "${{ github.workspace }}/scripts" ]; then
-            find "${{ github.workspace }}/scripts" -name "*.sh" -exec chmod +x {} \;
-          fi
+          chmod +x -R "${{ github.workspace }}/scripts"
           if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
-            chmod +x "${{ github.workspace }}/$DIY_SCRIPT"
             "${{ github.workspace }}/$DIY_SCRIPT"
           fi
-          
-          # 执行额外脚本（错误不中断）
-          "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL" 2>/dev/null || true
-          "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL" 2>/dev/null || true
+          "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
+          "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
           
           # 生成配置
           echo "⚙️ Generating defconfig..."
@@ -663,17 +658,15 @@ jobs:
           # 提取目标信息
           DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config || echo "x86")
           DEVICE_SUBTARGET=$(awk -F'"' '/^CONFIG_TARGET_SUBTARGET=/{print $2}' .config || echo "64")
-          
+          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | \
+            grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || echo "unknown")
+            
           {
             echo "DEVICE_TARGET=$DEVICE_TARGET"
             echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
+            echo "LATEST_RELEASE=$LATEST_RELEASE"
           } >> $GITHUB_ENV
-          
-          # 获取最新版本
-          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | \
-            grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || echo "unknown")
-          echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
-          
+              
           # 显示配置信息
           echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
           echo "📌 Latest Release: $LATEST_RELEASE"
