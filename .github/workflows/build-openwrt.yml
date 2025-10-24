@@ -300,22 +300,88 @@ jobs:
           echo "📦 Found toolchain archive: $(basename "$ARCHIVE")"
           echo "📊 Archive size: $(du -h "$ARCHIVE" | cut -f1)"
           
-          # 🔥 关键修正：直接解压到 openwrt 目录，不使用 --strip-components
-          echo "🔄 Extracting toolchain to $OPENWRT_PATH..."
+          # 🔥 关键修正：先查看压缩包结构
+          echo "🔍 Inspecting archive structure..."
+          tar -tzf "$ARCHIVE" | head -20
+          
           cd "$OPENWRT_PATH"
           
-          # 先备份现有的 .config（如果存在）
+          # 备份现有的 .config
           if [ -f ".config" ]; then
             echo "📄 Backing up existing .config"
             mv .config .config.backup
           fi
           
-          # 解压工具链（保持原始目录结构）
-          if ! tar -xzf "$ARCHIVE" -C "$OPENWRT_PATH"; then
-            echo "❌ Failed to extract toolchain"
-            [ -f ".config.backup" ] && mv .config.backup .config
+          # 🔥 修正：根据压缩包实际结构解压
+          echo "📦 Extracting toolchain to $OPENWRT_PATH..."
+          
+          # 先测试解压（不实际解压，只看结构）
+          FIRST_DIR=$(tar -tzf "$ARCHIVE" | head -1 | cut -d'/' -f1)
+          echo "📂 Archive root directory: $FIRST_DIR"
+          
+          # 根据结构选择解压方式
+          if [ "$FIRST_DIR" = "staging_dir" ] || [ "$FIRST_DIR" = "build_dir" ]; then
+            # 情况1：压缩包直接包含 staging_dir/build_dir
+            echo "✅ Direct structure detected, extracting without strip-components"
+            tar -xzf "$ARCHIVE" -C "$OPENWRT_PATH"
+          else
+            # 情况2：压缩包有顶层目录
+            echo "✅ Nested structure detected, extracting with strip-components=1"
+            tar -xzf "$ARCHIVE" --strip-components=1 -C "$OPENWRT_PATH"
+          fi
+          
+          # 🔥 验证关键目录
+          echo "🔍 Verifying toolchain directories..."
+          FOUND=false
+          
+          if [ -d "$OPENWRT_PATH/staging_dir" ]; then
+            TOOLCHAIN_COUNT=$(find "$OPENWRT_PATH/staging_dir" -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | wc -l)
+            if [ "$TOOLCHAIN_COUNT" -gt 0 ]; then
+              echo "✅ Found $TOOLCHAIN_COUNT toolchain directory(ies) in staging_dir"
+              ls -la "$OPENWRT_PATH/staging_dir/" | grep toolchain
+              FOUND=true
+            fi
+          fi
+          
+          if [ -d "$OPENWRT_PATH/build_dir" ]; then
+            BUILD_TOOLCHAIN_COUNT=$(find "$OPENWRT_PATH/build_dir" -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | wc -l)
+            if [ "$BUILD_TOOLCHAIN_COUNT" -gt 0 ]; then
+              echo "✅ Found $BUILD_TOOLCHAIN_COUNT toolchain directory(ies) in build_dir"
+              ls -la "$OPENWRT_PATH/build_dir/" | grep toolchain
+              FOUND=true
+            fi
+          fi
+          
+          if [ "$FOUND" = false ]; then
+            echo "⚠️ Toolchain directories not found after extraction"
+            echo "📂 Full directory structure:"
+            ls -la "$OPENWRT_PATH/" || true
+            echo ""
+            echo "📂 staging_dir contents:"
+            ls -la "$OPENWRT_PATH/staging_dir/" 2>/dev/null || echo "  (directory not found)"
+            echo ""
+            echo "📂 build_dir contents:"
+            ls -la "$OPENWRT_PATH/build_dir/" 2>/dev/null || echo "  (directory not found)"
+            echo ""
+            echo "❌ Toolchain extraction failed, will build from source"
             echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            
+            # 恢复 .config
+            if [ -f ".config.backup" ]; then
+              mv .config.backup .config
+            fi
+            
+            rm -rf /tmp/toolchain-cache
             exit 0
+          fi
+          
+          # 🔥 复制工具链信息文件
+          if [ -f "$OPENWRT_PATH/toolchain-info.txt" ]; then
+            cp "$OPENWRT_PATH/toolchain-info.txt" "$GITHUB_WORKSPACE/toolchain-info.txt"
+            echo "📋 Toolchain Info (from release):"
+            cat "$GITHUB_WORKSPACE/toolchain-info.txt"
+          else
+            echo "⚠️ toolchain-info.txt not found in archive"
           fi
           
           # 恢复 .config
@@ -323,103 +389,21 @@ jobs:
             mv .config.backup .config
           fi
           
-          # 显示工具链信息
-          if [ -f "toolchain-info.txt" ]; then
-            echo "📋 Toolchain Info (from prebuilt release):"
-            cat "toolchain-info.txt"
-          fi
-          
-          # 🔥 修正验证逻辑：检查实际的工具链目录
-          echo ""
-          echo "🔍 Verifying toolchain directories..."
-          
-          TOOLCHAIN_FOUND=false
-          
-          # 检查 staging_dir 中的工具链
-          if [ -d "staging_dir" ]; then
-            echo "📁 Contents of staging_dir:"
-            ls -la staging_dir/ | head -20
-            
-            # 查找工具链目录（可能有不同的命名）
-            TOOLCHAIN_DIRS=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null || true)
-            if [ -n "$TOOLCHAIN_DIRS" ]; then
-              echo "✅ Found toolchain directories in staging_dir:"
-              echo "$TOOLCHAIN_DIRS"
-              TOOLCHAIN_FOUND=true
-            fi
-          fi
-          
-          # 检查 build_dir 中的工具链
-          if [ -d "build_dir" ]; then
-            echo "📁 Contents of build_dir:"
-            ls -la build_dir/ | head -20
-            
-            TOOLCHAIN_BUILD_DIRS=$(find build_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null || true)
-            if [ -n "$TOOLCHAIN_BUILD_DIRS" ]; then
-              echo "✅ Found toolchain directories in build_dir:"
-              echo "$TOOLCHAIN_BUILD_DIRS"
-              TOOLCHAIN_FOUND=true
-            fi
-          fi
-          
           # 清理临时文件
           rm -rf /tmp/toolchain-cache
           
-          if [ "$TOOLCHAIN_FOUND" = true ]; then
-            echo ""
-            echo "✅ Toolchain successfully restored from prebuilt release"
-            echo "use_toolchain=true" >> $GITHUB_OUTPUT
-            echo "PREBUILT_TOOLCHAIN=restored" >> $GITHUB_ENV
-            echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
-          else
-            echo ""
-            echo "⚠️ Toolchain directories not found after extraction"
-            echo "📊 Full directory structure:"
-            find staging_dir build_dir -maxdepth 2 -type d 2>/dev/null | head -30 || true
-            echo "use_toolchain=false" >> $GITHUB_OUTPUT
-            echo "PREBUILT_TOOLCHAIN=fallback" >> $GITHUB_ENV
-            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-          fi
+          echo "✅ Prebuilt toolchain restored successfully"
+          echo "use_toolchain=true" >> $GITHUB_OUTPUT
+          echo "PREBUILT_TOOLCHAIN=restored" >> $GITHUB_ENV
       
       - name: ℹ️ Toolchain Build Mode
         run: |
-          echo "╔════════════════════════════════════════════╗"
-          echo "║      🔧 Toolchain Configuration            ║"
-          echo "╚════════════════════════════════════════════╝"
-          echo ""
-          
-          if [ "${{ steps.toolchain_meta.outputs.exists }}" != "true" ]; then
-            echo "⛏️ 未找到预编译工具链 Release: toolchain-${{ steps.toolchain_meta.outputs.toolchain_hash }}"
-            echo "🔨 将使用本地构建模式"
-            echo "⏱️  预计额外耗时: ~25 分钟"
-            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
-            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-          elif [ "${{ steps.download_toolchain.outputs.use_toolchain }}" = "true" ]; then
-            echo "✅ 成功使用预编译工具链"
-            echo "⚡ 预计节省时间: ~25 分钟"
-            echo "📦 工具链哈希: ${{ steps.toolchain_meta.outputs.toolchain_hash }}"
+          if [ "${{ steps.download_toolchain.outputs.use_toolchain }}" = "true" ]; then
+            echo "✅ 使用预编译工具链"
+            echo "TOOLCHAIN_MODE=prebuilt" >> $GITHUB_ENV
           else
-            echo "⚠️ 预编译工具链下载/验证失败，回退到本地构建"
-            echo "🔨 将从源码构建工具链"
-            echo "⏱️  预计额外耗时: ~25 分钟"
-            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
-            echo "TOOLCHAIN_READY=false" >> $GITHUB_ENV
-          fi
-          
-          echo ""
-          echo "💡 提示: 运行 'Build Toolchain' workflow 可为后续构建生成预编译工具链"
-      
-      - name: ℹ️ Toolchain Build Mode
-        run: |
-          if [ "${{ steps.toolchain_meta.outputs.exists }}" != "true" ]; then
-            echo "⛏️ 未找到预编译工具链 Release: toolchain-${{ steps.toolchain_meta.outputs.toolchain_hash }}"
-            echo "🔨 将使用本地构建模式"
-            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
-          elif [ "${PREBUILT_TOOLCHAIN}" = "fallback" ]; then
-            echo "⚠️ 预编译工具链下载失败，回退到本地构建"
-            echo "PREBUILT_TOOLCHAIN=local_build" >> $GITHUB_ENV
-          elif [ "${PREBUILT_TOOLCHAIN}" = "restored" ]; then
-            echo "✅ 成功使用预编译工具链，跳过工具链构建步骤"
+            echo "⛏️ 从源码构建工具链"
+            echo "TOOLCHAIN_MODE=source" >> $GITHUB_ENV
           fi
       # ============================================
       # 6.5. 工具链状态检查
