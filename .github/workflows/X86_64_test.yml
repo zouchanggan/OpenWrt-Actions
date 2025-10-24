@@ -1,303 +1,577 @@
-#=================================================
-# https://github.com/zhiern/OpenWRT
-# Description: Build OpenWrt using GitHub Actions
-# Lisence: MIT
-# Author: P3TERX
-# Blog: https://p3terx.com
-#=================================================
-
-name: 💻 X86_64_test
+name: 🏗️ Build OpenWrt
 
 on:
-  repository_dispatch:
   workflow_dispatch:
-  # schedule:
-    # - cron: 0 17 * * *
-  # watch:
-  #   types: started
-     inputs:
-      lan_addr:
-        description: 'Setting default LAN address'
-        required: true
-        default: '192.168.1.10'
-        type: string
-      root_password:
-        description: '设置默认 root 密码（可选，默认password）'
-        required: false
-        default: 'password'
-        type: string
-      docker:
-        description: '编绎 Docker '
+    inputs:
+      force_clean:
+        description: "🧹 强制清理缓存"
         type: boolean
-        default: true  
-      ssrp:
-        description: '编绎 ShadowSocksR Plus+ '
-        type: boolean
-        default: true  
-      passwall:
-        description: '编绎 passwall '
-        type: boolean
-        default: true 
-      nikki:
-        description: '编绎 Nikki '
+        default: false
+      use_prebuilt_toolchain:
+        description: "📦 使用预编译工具链"
         type: boolean
         default: true
-      openclash:
-        description: '编绎 OpenClash '
+      force_rebuild_toolchain:
+        description: "🔨 强制重新编译工具链"
         type: boolean
-        default: true  
-      lucky:
-        description: '编绎 Lucky '
-        type: boolean
-        default: true   
-      oaf:
-        description: '编绎 OpenAppFilter '
-        type: boolean
-        default: true  
-        
+        default: false
+
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
-  REPO_BRANCH: openwrt-24.10
-  CONFIG_FILE: configs/x86_64.config
-  DIY_SCRIPT: scripts/diy-x86_64.sh
-  CLASH_KERNEL: amd64
-  CACHE_TOOLCHAIN: true
-  UPLOAD_BIN_DIR: false
-  FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: X86_64
-  
+  OPENWRT_PATH: ${{ github.workspace }}/openwrt
+  CONFIG_FILE: config/x86_64.config
+  FEEDS_CONF: config/feeds.conf.default
+  DIY_SCRIPT: scripts/diy-part2.sh
+
 jobs:
   build:
     runs-on: ubuntu-24.04
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    steps: 
-    - name: Checkout
-      uses: actions/checkout@main
-      with:
-        path: ZeroWrt-Action
-        
-    - name: Setup variables
-      run: |
-        sudo timedatectl set-timezone 'Asia/Shanghai'
-        git config --global user.name 'actions'
-        git config --global user.email 'action@github.com'
-        
-    - name: Show system
-      run: |
-        echo -e "\n\e[1;32mCPU:\e[0m"
-        echo "$(grep 'model name' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}') ($(grep 'cpu MHz' /proc/cpuinfo | head -1 | awk -F ': ' '{print $2}')MHz) x $(grep processor /proc/cpuinfo  | wc -l)"
-        echo -e "\n\e[1;32mMemory:\e[0m"
-        free -h
-        echo -e "\n\e[1;32mStorage:\e[0m"
-        df -Th / /mnt
-        echo -e "\n\e[1;32mSystem:\e[0m"
-        lsb_release -a
-        echo -e "\n\e[1;32mKernel:\e[0m"
-        uname -a
-        echo
+      - name: 🔧 Initialize Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev \
+            libssl-dev python3-distutils rsync unzip zlib1g-dev \
+            file wget ccache
+          
+          sudo timedatectl set-timezone "Asia/Shanghai"
 
-    - name: Install Caddy Server
-      run: |
-        sudo curl -sL -o /usr/bin/caddy https://github.com/zhiern/ZeroWrt-Action/releases/download/Caddy/caddy
-        sudo chmod 755 /usr/bin/caddy
-        echo ":8080 {" > caddyfile
-        echo "    root * $(pwd)" >> caddyfile
-        echo "    file_server browse" >> caddyfile
-        echo "}" >> caddyfile
-        sudo /usr/bin/caddy start --config caddyfile --adapter caddyfile
-        
-    - name: Free disk space
-      uses: zhiern/actions@free-disk
+      - name: 📦 Clone OpenWrt Source
+        run: |
+          git clone https://git.openwrt.org/openwrt/openwrt.git "$OPENWRT_PATH"
+          cd "$OPENWRT_PATH"
+          git checkout openwrt-24.10
 
-    - name: Checkout
-      uses: actions/checkout@main
+      - name: 📋 Load Custom Configuration
+        run: |
+          [ -e "$FEEDS_CONF" ] && cp "$FEEDS_CONF" "$OPENWRT_PATH/feeds.conf.default"
+          [ -e "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "$OPENWRT_PATH/.config"
 
-    - name: Build System Setup
-      uses: zhiern/actions@openwrt-build-setup
+      - name: 🔄 Update & Install Feeds
+        run: |
+          cd "$OPENWRT_PATH"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    - name: Install LLVM
-      uses: zhiern/actions@install-llvm
+      - name: 🎨 Run Custom Script
+        run: |
+          chmod +x "$DIY_SCRIPT"
+          cd "$OPENWRT_PATH"
+          "$GITHUB_WORKSPACE/$DIY_SCRIPT"
+
+      - name: 📝 Generate Configuration
+        run: |
+          cd "$OPENWRT_PATH"
+          make defconfig
+
+      - name: 🔍 Calculate Toolchain Hash
+        id: toolchain_meta
+        run: |
+          cd "$OPENWRT_PATH"
+          
+          # 计算工具链配置哈希
+          TOOLCHAIN_HASH=$(cat .config | grep -E "^CONFIG_TARGET_|^CONFIG_TOOLCHAIN_" | md5sum | cut -d' ' -f1 | cut -c1-40)
+          echo "hash=$TOOLCHAIN_HASH" >> $GITHUB_OUTPUT
+          echo "📊 Toolchain Hash: $TOOLCHAIN_HASH"
+          
+          # 检查 Release 是否存在
+          RELEASE_TAG="toolchain-${TOOLCHAIN_HASH}"
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Found prebuilt toolchain: $RELEASE_TAG"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Prebuilt toolchain not found: $RELEASE_TAG"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📥 Download & Restore Prebuilt Toolchain
+        id: download_toolchain
+        if: |
+          steps.toolchain_meta.outputs.exists == 'true' && 
+          github.event.inputs.force_clean != 'true' &&
+          github.event.inputs.use_prebuilt_toolchain == 'true' &&
+          github.event.inputs.force_rebuild_toolchain != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🚀 Downloading Prebuilt Toolchain"
+          echo "════════════════════════════════════════════════════════════════"
+          
+          TOOLCHAIN_HASH="${{ steps.toolchain_meta.outputs.hash }}"
+          RELEASE_TAG="toolchain-${TOOLCHAIN_HASH}"
+          
+          echo ""
+          echo "📋 Toolchain Information:"
+          echo "  Hash: $TOOLCHAIN_HASH"
+          echo "  Release: $RELEASE_TAG"
+          echo ""
+          
+          # 下载工具链
+          echo "📥 Downloading toolchain archive..."
+          ARCHIVE=$(gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "toolchain-*.tar.gz" \
+            --dir /tmp 2>&1 | grep -o '/tmp/toolchain-.*\.tar\.gz' | head -1)
+          
+          if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+            echo "❌ Failed to download toolchain archive"
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "✅ Downloaded: $(basename "$ARCHIVE")"
+          echo "📊 Archive size: $(du -h "$ARCHIVE" | cut -f1)"
+          
+          # 验证压缩包完整性
+          echo ""
+          echo "🔍 Verifying archive integrity..."
+          if ! tar -tzf "$ARCHIVE" > /dev/null 2>&1; then
+            echo "❌ Archive is corrupted or invalid"
+            rm -f "$ARCHIVE"
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "✅ Archive integrity verified"
+          
+          # 检测压缩包结构
+          echo ""
+          echo "🔍 Inspecting archive structure..."
+          
+          # 使用临时文件避免管道错误
+          tar -tzf "$ARCHIVE" > /tmp/archive-list.txt 2>&1 || true
+          
+          echo "First 20 files in archive:"
+          head -20 /tmp/archive-list.txt
+          
+          FIRST_DIR=$(head -1 /tmp/archive-list.txt | cut -d'/' -f1)
+          echo ""
+          echo "📂 Archive root directory: $FIRST_DIR"
+          
+          rm -f /tmp/archive-list.txt
+          
+          # 解压工具链
+          cd "$OPENWRT_PATH"
+          echo ""
+          echo "📦 Extracting toolchain to $OPENWRT_PATH..."
+          
+          # 智能解压策略
+          if [ "$FIRST_DIR" = "staging_dir" ] || [ "$FIRST_DIR" = "build_dir" ] || [ "$FIRST_DIR" = "toolchain-info.txt" ]; then
+            echo "✅ Direct structure detected, extracting without strip-components"
+            if ! tar -xzf "$ARCHIVE" -C "$OPENWRT_PATH" 2>&1; then
+              echo "❌ Extraction failed"
+              rm -f "$ARCHIVE"
+              echo "use_toolchain=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            echo "✅ Nested structure detected, extracting with strip-components=1"
+            if ! tar -xzf "$ARCHIVE" --strip-components=1 -C "$OPENWRT_PATH" 2>&1; then
+              echo "❌ Extraction failed"
+              rm -f "$ARCHIVE"
+              echo "use_toolchain=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          rm -f "$ARCHIVE"
+          echo "✅ Extraction completed"
+          
+          # 验证工具链目录
+          echo ""
+          echo "🔍 Verifying toolchain directories..."
+          
+          TOOLCHAIN_COUNT=$(find "$OPENWRT_PATH/staging_dir" -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | wc -l)
+          
+          if [ "$TOOLCHAIN_COUNT" -eq 0 ]; then
+            echo "❌ No toolchain directory found in staging_dir"
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "✅ Found $TOOLCHAIN_COUNT toolchain directory(ies) in staging_dir"
+          
+          TOOLCHAIN_DIR=$(find "$OPENWRT_PATH/staging_dir" -maxdepth 1 -type d -name "toolchain-*" | head -1)
+          echo "📂 Toolchain directory: $(basename "$TOOLCHAIN_DIR")"
+          
+          # 显示目录结构
+          echo ""
+          echo "📊 Toolchain directory structure:"
+          ls -lh "$TOOLCHAIN_DIR" 2>/dev/null | head -10 || echo "⚠️ Cannot list directory"
+          
+          # 🔥 关键：验证工具链完整性
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🔍 Validating Toolchain Integrity"
+          echo "════════════════════════════════════════════════════════════════"
+          
+          # 检查编译器
+          GCC_BIN="$TOOLCHAIN_DIR/bin/x86_64-openwrt-linux-gcc"
+          
+          if [ ! -f "$GCC_BIN" ]; then
+            echo "❌ GCC not found: $GCC_BIN"
+            echo "⚠️ Toolchain appears incomplete, will rebuild from source"
+            rm -rf "$TOOLCHAIN_DIR"
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if [ ! -x "$GCC_BIN" ]; then
+            echo "❌ GCC is not executable: $GCC_BIN"
+            echo "⚠️ Fixing permissions..."
+            chmod +x "$GCC_BIN"
+          fi
+          
+          # 测试编译器
+          echo ""
+          echo "🧪 Testing compiler..."
+          if ! "$GCC_BIN" --version > /tmp/gcc-test.log 2>&1; then
+            echo "❌ Compiler test failed"
+            echo "Error output:"
+            cat /tmp/gcc-test.log
+            echo ""
+            echo "⚠️ Toolchain is incompatible with current environment"
+            rm -rf "$TOOLCHAIN_DIR"
+            rm -f /tmp/gcc-test.log
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          GCC_VERSION=$("$GCC_BIN" --version | head -1)
+          echo "✅ Compiler test passed: $GCC_VERSION"
+          rm -f /tmp/gcc-test.log
+          
+          # 检查关键工具
+          echo ""
+          echo "🔍 Checking required tools..."
+          
+          REQUIRED_TOOLS=(
+            "x86_64-openwrt-linux-g++"
+            "x86_64-openwrt-linux-ld"
+            "x86_64-openwrt-linux-ar"
+            "x86_64-openwrt-linux-as"
+            "x86_64-openwrt-linux-ranlib"
+            "x86_64-openwrt-linux-strip"
+            "x86_64-openwrt-linux-objcopy"
+            "x86_64-openwrt-linux-objdump"
+          )
+          
+          MISSING_TOOLS=0
+          for tool in "${REQUIRED_TOOLS[@]}"; do
+            TOOL_PATH="$TOOLCHAIN_DIR/bin/$tool"
+            if [ ! -f "$TOOL_PATH" ]; then
+              echo "❌ Missing tool: $tool"
+              MISSING_TOOLS=$((MISSING_TOOLS + 1))
+            else
+              # 修复权限
+              chmod +x "$TOOL_PATH" 2>/dev/null || true
+              echo "✅ Found: $tool"
+            fi
+          done
+          
+          if [ $MISSING_TOOLS -gt 0 ]; then
+            echo ""
+            echo "❌ Toolchain incomplete: $MISSING_TOOLS missing tools"
+            echo "⚠️ Will rebuild toolchain from source"
+            rm -rf "$TOOLCHAIN_DIR"
+            echo "use_toolchain=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo ""
+          echo "✅ All required tools present and executable"
+          
+          # 检查库文件
+          echo ""
+          echo "🔍 Checking libraries..."
+          
+          LIB_DIR="$TOOLCHAIN_DIR/lib"
+          if [ ! -d "$LIB_DIR" ]; then
+            echo "⚠️ Library directory not found: $LIB_DIR"
+          else
+            LIB_COUNT=$(find "$LIB_DIR" -name "*.so*" -o -name "*.a" 2>/dev/null | wc -l)
+            echo "✅ Found $LIB_COUNT library files"
+          fi
+          
+          # 标记工具链已验证
+          touch "$TOOLCHAIN_DIR/.validated"
+          echo "$(date -u +"%Y-%m-%d %H:%M:%S UTC")" > "$TOOLCHAIN_DIR/.validated"
+          
+          # 显示工具链信息
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📋 Toolchain Information"
+          echo "════════════════════════════════════════════════════════════════"
+          
+          if [ -f "$OPENWRT_PATH/toolchain-info.txt" ]; then
+            cat "$OPENWRT_PATH/toolchain-info.txt"
+          else
+            echo "OpenWrt Version: openwrt-24.10"
+            echo "Target Platform: x86/64"
+            echo "Toolchain Hash: $TOOLCHAIN_HASH"
+            echo "GCC Version: $GCC_VERSION"
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "✅ Prebuilt Toolchain Validated and Ready"
+          echo "════════════════════════════════════════════════════════════════"
+          
+          echo "use_toolchain=true" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check Toolchain Status
+        id: check_toolchain
+        run: |
+          cd "$OPENWRT_PATH"
+          
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🔍 Toolchain Status Check"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          if [ "${{ steps.download_toolchain.outputs.use_toolchain }}" = "true" ]; then
+            echo "✅ Status: Prebuilt toolchain loaded"
+            echo "⚡ Build time will be reduced by ~25 minutes"
+            echo "🔑 Toolchain Hash: ${{ steps.toolchain_meta.outputs.hash }}"
+            
+            TOOLCHAIN_DIR=$(find "$OPENWRT_PATH/staging_dir" -maxdepth 1 -type d -name "toolchain-*" | head -1)
+            
+            if [ -f "$TOOLCHAIN_DIR/.validated" ]; then
+              echo "✅ Validation timestamp: $(cat "$TOOLCHAIN_DIR/.validated")"
+            fi
+            
+            echo ""
+            echo "📊 Current staging_dir status:"
+            echo "  Total size: $(du -sh staging_dir 2>/dev/null | cut -f1)"
+            echo "  Contents:"
+            ls -lh staging_dir/ 2>/dev/null | grep "^d" | awk '{print "    " $0}'
+            
+          else
+            echo "⚠️ Status: Will build toolchain from source"
+            echo "⏱️ This will add ~25-30 minutes to build time"
+            echo "📝 Reason: ${{ steps.download_toolchain.outputs.use_toolchain == '' && 'No prebuilt toolchain available' || 'Toolchain validation failed' }}"
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      - name: 🔨 Compile Firmware
+        id: compile
+        run: |
+          cd "$OPENWRT_PATH"
+          
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🔨 Starting OpenWrt Compilation"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "📊 Build Configuration:"
+          echo "  CPU Cores: $(nproc)"
+          echo "  Memory: $(free -h | grep Mem | awk '{print $2}')"
+          echo "  Disk Space: $(df -h . | tail -1 | awk '{print $4}') available"
+          echo "  Prebuilt Toolchain: ${{ steps.download_toolchain.outputs.use_toolchain == 'true' && 'Yes' || 'No' }}"
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # 第一次尝试：使用预编译工具链
+          if [ "${{ steps.download_toolchain.outputs.use_toolchain }}" = "true" ]; then
+            echo "🚀 Attempting build with prebuilt toolchain..."
+            echo ""
+            
+            if make -j$(nproc) \
+              IGNORE_ERRORS='n m' \
+              BUILD_LOG=1 \
+              CONFIG_AUTOREMOVE=y \
+              V=s \
+              world 2>&1 | tee /tmp/build.log; then
+              
+              echo ""
+              echo "════════════════════════════════════════════════════════════════"
+              echo "✅ Build Successful with Prebuilt Toolchain"
+              echo "════════════════════════════════════════════════════════════════"
+              exit 0
+            else
+              BUILD_EXIT_CODE=$?
+              echo ""
+              echo "════════════════════════════════════════════════════════════════"
+              echo "❌ Build Failed with Prebuilt Toolchain (Exit Code: $BUILD_EXIT_CODE)"
+              echo "════════════════════════════════════════════════════════════════"
+              echo ""
+              
+              # 检查是否是工具链问题
+              if grep -q "toolchain.*failed" /tmp/build.log || \
+                 grep -q "binutils.*failed" /tmp/build.log || \
+                 grep -q "gcc.*failed" /tmp/build.log; then
                 
-    - name: Clone Source Code
-      run: |
-        df -hT $GITHUB_WORKSPACE
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        curl -o ./openwrt/feeds.conf.default https://raw.githubusercontent.com/grandway2025/Actions-OpenWrt/refs/heads/main/Customize/feeds/feeds.conf.default
-        cd openwrt
-        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
-        COMMIT_AUTHOR=$(git show -s --date=short --format="作者: %an")
-        echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-        COMMIT_DATE=$(git show -s --date=short --format="时间: %ci")
-        echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
-        COMMIT_MESSAGE=$(git show -s --date=short --format="内容: %s")
-        echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
-        COMMIT_HASH=$(git show -s --date=short --format="hash: %H")
-        echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
-        echo "CURRENT_DATE=$(date +%s)" >> $GITHUB_ENV
-        
-        
-    - name: Generate Variables
-      run: |
-        cp $CONFIG_FILE $OPENWRT_PATH/.config
-        cd $OPENWRT_PATH
-        make defconfig > /dev/null 2>&1
-        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
-        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
-        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
-        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
-        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-        echo "ROOT_PASSWORD=${{ github.event.inputs.root_password }}" >> $GITHUB_ENV
-        latest_release="$(curl -s https://github.com/openwrt/openwrt/tags | grep -Eo "v[0-9\.]+\-*r*c*[0-9]*.tar.gz" | sed -n '/[2-9][4-9]/p' | sed -n 1p | sed 's/.tar.gz//g' | sed 's/v//g')"
-        echo "latest_release=${latest_release}" >>$GITHUB_ENV
-        if [ "${{ github.event.inputs.docker }}" = "true" ]; then
-          echo "PLUGIN_DOCKER=已编译 Docker" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_DOCKER=未编译 Docker" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.ssrp }}" = "true" ]; then
-          echo "PLUGIN_SSRP=已编译 ShadowSocksR Plus+" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_SSRP=未编译 ShadowSocksR Plus+" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.passwall }}" = "true" ]; then
-          echo "PLUGIN_PASSWALL=已编译 PassWall" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_PASSWALL=未编译 PassWall" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.nikki }}" = "true" ]; then
-          echo "PLUGIN_NIKKI=已编译 Nikki" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_NIKKI=未编译 Nikki" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.openclash }}" = "true" ]; then
-          echo "PLUGIN_OPENCLASH=已编译 OpenClash" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_OPENCLASH=未编译 OpenClash" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.lucky }}" = "true" ]; then
-          echo "PLUGIN_LUCKY=已编译 Lucky" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_LUCKY=未编译 Lucky" >> $GITHUB_ENV
-        fi
-        if [ "${{ github.event.inputs.oaf }}" = "true" ]; then
-          echo "PLUGIN_OAF=已编译 OpenAppFilter" >> $GITHUB_ENV
-        else
-          echo "PLUGIN_OAF=未编译 OpenAppFilter" >> $GITHUB_ENV
-        fi
+                echo "🔍 Detected toolchain-related error"
+                echo "🔄 Will retry with toolchain rebuild..."
+                echo ""
+                
+                # 清理工具链
+                echo "🧹 Cleaning prebuilt toolchain..."
+                rm -rf staging_dir/toolchain-*
+                rm -rf build_dir/toolchain-*
+                rm -rf tmp/
+                
+                echo "✅ Toolchain cleaned"
+                echo ""
+                echo "════════════════════════════════════════════════════════════════"
+                echo "🔨 Rebuilding Toolchain from Source"
+                echo "════════════════════════════════════════════════════════════════"
+                echo ""
+                
+                # 第二次尝试：重新编译工具链
+                if make -j$(nproc) \
+                  IGNORE_ERRORS='n m' \
+                  BUILD_LOG=1 \
+                  CONFIG_AUTOREMOVE=y \
+                  V=s \
+                  world; then
+                  
+                  echo ""
+                  echo "════════════════════════════════════════════════════════════════"
+                  echo "✅ Build Successful with Rebuilt Toolchain"
+                  echo "════════════════════════════════════════════════════════════════"
+                  exit 0
+                else
+                  echo ""
+                  echo "════════════════════════════════════════════════════════════════"
+                  echo "❌ Build Failed Even After Toolchain Rebuild"
+                  echo "════════════════════════════════════════════════════════════════"
+                  exit 1
+                fi
+              else
+                echo "❌ Build failed due to non-toolchain error"
+                echo "📋 Check build logs for details"
+                exit 1
+              fi
+            fi
+          else
+            # 直接从源码编译
+            echo "🔨 Building with toolchain from source..."
+            echo ""
+            
+            if make -j$(nproc) \
+              IGNORE_ERRORS='n m' \
+              BUILD_LOG=1 \
+              CONFIG_AUTOREMOVE=y \
+              V=s \
+              world; then
+              
+              echo ""
+              echo "════════════════════════════════════════════════════════════════"
+              echo "✅ Build Successful"
+              echo "════════════════════════════════════════════════════════════════"
+              exit 0
+            else
+              echo ""
+              echo "════════════════════════════════════════════════════════════════"
+              echo "❌ Build Failed"
+              echo "════════════════════════════════════════════════════════════════"
+              exit 1
+            fi
+          fi
 
-    - name: Cache Toolchain
-      if: env.CACHE_TOOLCHAIN == 'true'
-      uses: HiGarfield/cachewrtbuild@main
-      with:
-        ccache: false
-        mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
-        prefix: ${{ env.OPENWRT_PATH }}
-        
-    - name: Install Feeds
-      run: |
-        cd $OPENWRT_PATH
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-        
-    - name: Load Custom Configuration
-      run: |
-       export ${{ github.event.inputs.build_options }} LAN=${{ github.event.inputs.lan_addr }}
-        [ ${{ github.event.inputs.docker }} = 'true' ] && export ENABLE_DOCKER=y
-        [ ${{ github.event.inputs.ssrp }} = 'true' ] && export ENABLE_SSRP=y
-        [ ${{ github.event.inputs.passwall }} = 'true' ] && export ENABLE_PASSWALL=y
-        [ ${{ github.event.inputs.nikki }} = 'true' ] && export ENABLE_NIKKI=y
-        [ ${{ github.event.inputs.openclash }} = 'true' ] && export ENABLE_OPENCLASH=y     
-        [ ${{ github.event.inputs.lucky }} = 'true' ] && export ENABLE_LUCKY=y
-        [ ${{ github.event.inputs.oaf }} = 'true' ] && export ENABLE_OAF=y
-        [ -e files ] && mv files $OPENWRT_PATH/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRT_PATH/.config
-        chmod +x $GITHUB_WORKSPACE/scripts/*.sh
-        chmod +x $DIY_SCRIPT
-        cd $OPENWRT_PATH
-        $GITHUB_WORKSPACE/$DIY_SCRIPT
-        $GITHUB_WORKSPACE/scripts/preset-mihimo-core.sh $CLASH_KERNEL
-        $GITHUB_WORKSPACE/scripts/preset-adguard-core.sh $CLASH_KERNEL
-        
-    - name: Download DL Package
-      run: |
-        cd $OPENWRT_PATH
-        make defconfig
-        make download -j8
-        
-    - name: Compile Firmware
-      id: compile
-      run: |
-        cd $OPENWRT_PATH
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        sed -n 's/.*lan) ipad=${ipaddr:-"\([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\)"} ;;.*/\1/p' package/base-files/files/bin/config_generate | head -n 1 > IP_ADDR
-        [ -s IP_ADDR ] && echo "IP_ADDR=$(cat IP_ADDR)" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-        echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-        echo "TAG_TIME=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
-        
-    - name: Check Space Usage
-      if: (!cancelled())
-      run: df -hT
-        
-    - name: Upload Bin Directory
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      uses: actions/upload-artifact@main
-      with:
-        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
-        path: ${{ env.OPENWRT_PATH }}/bin
+      - name: 📦 Upload Firmware
+        if: steps.compile.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_firmware_${{ steps.toolchain_meta.outputs.hash }}
+          path: ${{ env.OPENWRT_PATH }}/bin/targets/*/*/
 
-    - name: Organize Files
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd $OPENWRT_PATH/bin/targets/*/*
-        cat sha256sums
-        cp $OPENWRT_PATH/.config build.config
-        mkdir -p kernel
-        mv -f packages/* kernel
-        tar -zcf kernel.tar.gz kernel
-        rm -rf packages feeds.buildinfo version.buildinfo kernel
-        echo "KERNEL=$(cat *.manifest | grep ^kernel | cut -d- -f2 | tr -d ' ')" >> $GITHUB_ENV
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
-        
-    - name: Upload Firmware To Artifact
-      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
-      uses: actions/upload-artifact@main
-      with:
-        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE_PATH }}
-
-    - name: Upload Firmware To Release
-      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
-      uses: ncipollo/release-action@v1.14.0
-      with:
-        name: ${{ env.FILE_DATE }}-${{ env.FIRMWARE_TAG }}-${{ env.latest_release }}
-        allowUpdates: true
-        tag: ${{ env.FIRMWARE_TAG }}-OpenWrt
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: ${{ env.FIRMWARE_PATH }}/*
-        body: |
-          **This is OpenWrt Firmware**
-          ### 📒 固件信息
-          - 💻 平台架构: ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
-          - ⚽ 固件源码: ${{ env.REPO_URL }}
-          - 💝 源码分支: ${{ env.REPO_BRANCH }}
-          - 🚀 内核版本: ${{ env.KERNEL }}
-          - 🌐 默认地址: ${{ env.IP_ADDR }}
-          - 🔑 默认密码: ${{ github.event.inputs.root_password }}
-          - 📦 插件状态: ${{ env.PLUGIN_DOCKER }}
-          - 📦 插件状态: ${{ env.PLUGIN_SSRP }}
-          - 📦 插件状态: ${{ env.PLUGIN_PASSWALL }}
-          - 📦 插件状态: ${{ env.PLUGIN_NIKKI }}
-          - 📦 插件状态: ${{ env.PLUGIN_OPENCLASH }}
-          - 📦 插件状态: ${{ env.PLUGIN_ADGUARDHOME }}
-          - 📦 插件状态: ${{ env.PLUGIN_LUCKY }}
-          - 📦 插件状态: ${{ env.PLUGIN_OAF }}
-          ### 🧊 固件版本
-          - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
-          - ${{ env.COMMIT_AUTHOR }}
-          - ${{ env.COMMIT_DATE }}
-          - ${{ env.COMMIT_MESSAGE }}
-          - ${{ env.COMMIT_HASH }}
+      - name: 💾 Cache/Upload Toolchain
+        if: |
+          steps.compile.outcome == 'success' &&
+          steps.toolchain_meta.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$OPENWRT_PATH"
+          
+          echo "════════════════════════════════════════════════════════════════"
+          echo "💾 Caching Toolchain for Future Builds"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          TOOLCHAIN_HASH="${{ steps.toolchain_meta.outputs.hash }}"
+          RELEASE_TAG="toolchain-${TOOLCHAIN_HASH}"
+          ARCHIVE_NAME="toolchain-openwrt-24.10-x86-64.tar.gz"
+          
+          echo "📋 Toolchain Information:"
+          echo "  Hash: $TOOLCHAIN_HASH"
+          echo "  Release Tag: $RELEASE_TAG"
+          echo "  Archive Name: $ARCHIVE_NAME"
+          echo ""
+          
+          # 生成工具链信息文件
+          cat > toolchain-info.txt << EOF
+          OpenWrt Version: openwrt-24.10
+          Target Platform: x86/64
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S %Z")
+          Build Host: $(uname -n)
+          Kernel: $(uname -r)
+          Toolchain Hash: $TOOLCHAIN_HASH
+          
+          Compiler Information:
+          EOF
+          
+          TOOLCHAIN_DIR=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" | head -1)
+          if [ -n "$TOOLCHAIN_DIR" ] && [ -f "$TOOLCHAIN_DIR/bin/x86_64-openwrt-linux-gcc" ]; then
+            "$TOOLCHAIN_DIR/bin/x86_64-openwrt-linux-gcc" --version >> toolchain-info.txt
+          fi
+          
+          echo ""
+          echo "📦 Creating toolchain archive..."
+          echo "  Including: staging_dir/toolchain-*"
+          echo "  Including: staging_dir/target-*"
+          echo "  Including: build_dir/toolchain-*"
+          echo ""
+          
+          # 创建压缩包
+          tar -czf "/tmp/$ARCHIVE_NAME" \
+            staging_dir/toolchain-* \
+            staging_dir/target-* \
+            build_dir/toolchain-* \
+            toolchain-info.txt \
+            2>&1 | grep -v "Removing leading"
+          
+          ARCHIVE_SIZE=$(du -h "/tmp/$ARCHIVE_NAME" | cut -f1)
+          echo "✅ Archive created: $ARCHIVE_SIZE"
+          echo ""
+          
+          # 创建 Release
+          echo "📤 Creating GitHub Release..."
+          
+          gh release create "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Toolchain $TOOLCHAIN_HASH" \
+            --notes "Prebuilt toolchain for OpenWrt 24.10 (x86/64)
+          
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S %Z")
+          Toolchain Hash: $TOOLCHAIN_HASH
+          Archive Size: $ARCHIVE_SIZE
+          
+          This toolchain can reduce build time by ~25-30 minutes." \
+            "/tmp/$ARCHIVE_NAME" \
+            2>&1
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          echo "✅ Toolchain Cached Successfully"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "📊 Summary:"
+          echo "  Release: $RELEASE_TAG"
+          echo "  Archive: $ARCHIVE_NAME"
+          echo "  Size: $ARCHIVE_SIZE"
+          echo "  Future builds will use this cached toolchain"
+          echo ""
