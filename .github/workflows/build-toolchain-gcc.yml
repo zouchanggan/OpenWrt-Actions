@@ -1,0 +1,531 @@
+name: 🔧 Build OpenWrt Toolchain (GCC 15)
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: '🎯 Target Model'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - nanopi-r5s
+          - netgear_r8500
+          - redmi_ax6000
+      libc:
+        description: '📚 C Library'
+        required: true
+        default: 'musl'
+        type: choice
+        options:
+          - musl
+          - glibc
+      tools:
+        description: '🛠️ Build Tools'
+        required: true
+        default: 'ccache'
+        type: choice
+        options:
+          - ccache
+          - noccache
+      gcc_version:
+        description: '🔧 GCC Version'
+        required: true
+        default: '15'
+        type: choice
+        options:
+          - '13'
+          - '14'
+          - '15'
+
+env:
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-24.10
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    name: 🔨 ${{ github.event.inputs.model }}-${{ github.event.inputs.libc }}-gcc${{ github.event.inputs.gcc_version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    
+    steps:
+      # ============================================
+      # 1. 环境初始化
+      # ============================================
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🔧 Set Time Zone
+        run: sudo timedatectl set-timezone "$TZ"
+
+      - name: 📊 Show System Information
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📊 System Information"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "🖥️  OS: $(lsb_release -d | cut -f2)"
+          echo "🔧 Kernel: $(uname -r)"
+          echo "💻 CPU: $(nproc) cores"
+          lscpu | grep "Model name" | cut -d':' -f2 | xargs echo "   "
+          echo "💾 Memory: $(free -h | awk '/^Mem:/ {print $2}')"
+          echo "💿 Disk: $(df -h / | awk 'NR==2 {print $4}') available"
+          echo ""
+          echo "📋 Build Configuration:"
+          echo "  Model: ${{ github.event.inputs.model }}"
+          echo "  C Library: ${{ github.event.inputs.libc }}"
+          echo "  GCC Version: ${{ github.event.inputs.gcc_version }}"
+          echo "  Build Tools: ${{ github.event.inputs.tools }}"
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      - name: 🔧 Set Build Environment
+        id: env
+        run: |
+          sudo mkdir -p /builder
+          sudo chown -R runner:runner /builder
+          echo "WORKDIR=/builder" >> $GITHUB_ENV
+          
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          # 🔥 计算工具链架构（与 build.sh 对齐）
+          case "${{ github.event.inputs.model }}" in
+            x86_64)
+              TOOLCHAIN_ARCH="x86_64"
+              ;;
+            nanopi-r5s|redmi_ax6000)
+              TOOLCHAIN_ARCH="aarch64_generic"
+              ;;
+            netgear_r8500)
+              TOOLCHAIN_ARCH="arm_cortex-a9"
+              ;;
+            *)
+              TOOLCHAIN_ARCH="x86_64"
+              ;;
+          esac
+          
+          echo "TOOLCHAIN_ARCH=$TOOLCHAIN_ARCH" >> $GITHUB_ENV
+          echo "📦 Toolchain Architecture: $TOOLCHAIN_ARCH"
+
+      # ============================================
+      # 2. 系统优化
+      # ============================================
+      - name: 🧹 Free Disk Space
+        uses: sbwml/actions@free-disk
+        with:
+          build-mount-path: /builder
+
+      - name: 🛠️ Build System Setup
+        uses: sbwml/actions@openwrt-build-setup
+
+      - name: 📦 Install LLVM
+        uses: sbwml/actions@install-llvm
+
+      # ============================================
+      # 3. 克隆 OpenWrt 源码
+      # ============================================
+      - name: 📥 Clone OpenWrt Source
+        working-directory: /builder
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📥 Cloning OpenWrt Source"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Repository: $REPO_URL"
+          echo "Branch: $REPO_BRANCH"
+          echo ""
+          
+          for attempt in 1 2 3; do
+            echo "📥 Clone attempt $attempt/3..."
+            if git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt; then
+              echo "✅ Clone successful"
+              break
+            fi
+            echo "❌ Clone attempt $attempt failed"
+            rm -rf openwrt
+            if [ $attempt -lt 3 ]; then
+              sleep 10
+            else
+              echo "❌ All clone attempts failed"
+              exit 1
+            fi
+          done
+          
+          cd openwrt
+          echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+          
+          echo ""
+          echo "📋 Source Information:"
+          git log -1 --pretty=format:"  Commit: %H%n  Author: %an%n  Date: %ci%n  Message: %s"
+          echo ""
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      # ============================================
+      # 4. 更新 Feeds
+      # ============================================
+      - name: 📚 Update Feeds
+        working-directory: /builder/openwrt
+        run: |
+          echo "📚 Updating feeds..."
+          ./scripts/feeds update -a
+          
+          echo "📦 Installing feeds..."
+          ./scripts/feeds install -a
+          
+          echo "✅ Feeds configured"
+
+      # ============================================
+      # 5. 应用 GCC 15 补丁
+      # ============================================
+      - name: 🔧 Apply GCC 15 Patches
+        working-directory: /builder/openwrt
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🔧 Applying GCC 15 Patches"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # 🔥 应用 GCC 15 支持补丁
+          PATCH_URL="https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main/doc/patch/gcc/200-toolchain-gcc-add-support-for-GCC-15.patch"
+          
+          echo "📥 Downloading GCC 15 patch..."
+          if curl -sL "$PATCH_URL" -o /tmp/gcc15.patch; then
+            echo "✅ Patch downloaded"
+            
+            echo "🔧 Applying patch..."
+            if patch -p1 < /tmp/gcc15.patch; then
+              echo "✅ Patch applied successfully"
+            else
+              echo "❌ Patch application failed"
+              exit 1
+            fi
+            
+            rm -f /tmp/gcc15.patch
+          else
+            echo "❌ Failed to download patch"
+            exit 1
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      # ============================================
+      # 6. 生成工具链配置
+      # ============================================
+      - name: ⚙️ Generate Toolchain Config
+        working-directory: /builder/openwrt
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "⚙️ Generating Toolchain Configuration"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # 🔥 基础配置（根据目标平台）
+          case "${{ github.event.inputs.model }}" in
+            x86_64)
+              cat > .config <<EOF
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          EOF
+              ;;
+            nanopi-r5s)
+              cat > .config <<EOF
+          CONFIG_TARGET_rockchip=y
+          CONFIG_TARGET_rockchip_armv8=y
+          CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-r5s=y
+          EOF
+              ;;
+            netgear_r8500)
+              cat > .config <<EOF
+          CONFIG_TARGET_bcm53xx=y
+          CONFIG_TARGET_bcm53xx_generic=y
+          CONFIG_TARGET_bcm53xx_generic_DEVICE_netgear_r8500=y
+          EOF
+              ;;
+            redmi_ax6000)
+              cat > .config <<EOF
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000=y
+          EOF
+              ;;
+          esac
+          
+          # 🔥 GCC 配置
+          cat >> .config <<EOF
+          
+          # GCC ${{ github.event.inputs.gcc_version }}
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+          CONFIG_GCC_USE_VERSION_${{ github.event.inputs.gcc_version }}=y
+          EOF
+          
+          # 🔥 C 库配置
+          if [ "${{ github.event.inputs.libc }}" = "glibc" ]; then
+            cat >> .config <<EOF
+          
+          # glibc
+          CONFIG_LIBC_USE_GLIBC=y
+          EOF
+          else
+            cat >> .config <<EOF
+          
+          # musl
+          CONFIG_LIBC_USE_MUSL=y
+          EOF
+          fi
+          
+          # 🔥 ccache 配置
+          if [ "${{ github.event.inputs.tools }}" = "ccache" ]; then
+            cat >> .config <<EOF
+          
+          # ccache
+          CONFIG_CCACHE=y
+          EOF
+          fi
+          
+          # 🔥 优化选项
+          cat >> .config <<EOF
+          
+          # Optimizations
+          CONFIG_KERNEL_BUILD_USER="github-actions"
+          CONFIG_KERNEL_BUILD_DOMAIN="github.com"
+          EOF
+          
+          echo "📄 Generated .config:"
+          cat .config
+          echo ""
+          
+          # 生成完整配置
+          make defconfig
+          
+          echo "✅ Configuration generated"
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      # ============================================
+      # 7. 🔥 编译工具链
+      # ============================================
+      - name: 🔨 Compile Toolchain
+        working-directory: /builder/openwrt
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "🔨 Compiling Toolchain"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          CORES=$(nproc)
+          echo "🔧 Using $CORES CPU cores"
+          echo ""
+          
+          # 编译工具链
+          echo "⏱️  Starting compilation (this may take 20-30 minutes)..."
+          echo ""
+          
+          if make -j$CORES toolchain/compile V=s 2>&1 | tee /tmp/toolchain-build.log; then
+            echo ""
+            echo "✅ Toolchain compilation successful"
+          else
+            echo ""
+            echo "❌ Toolchain compilation failed"
+            echo ""
+            echo "📋 Last 50 lines of build log:"
+            tail -50 /tmp/toolchain-build.log
+            exit 1
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+
+      # ============================================
+      # 8. 🔥 打包工具链（与 build.sh 对齐）
+      # ============================================
+      - name: 📦 Package Toolchain
+        working-directory: /builder/openwrt
+        run: |
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📦 Packaging Toolchain"
+          echo "════════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # 🔥 创建工具链缓存目录
+          mkdir -p toolchain-cache
+          
+          # 🔥 生成文件名（与 build.sh 完全一致）
+          LIBC="${{ github.event.inputs.libc }}"
+          TOOLCHAIN_ARCH="${{ env.TOOLCHAIN_ARCH }}"
+          GCC_VERSION="${{ github.event.inputs.gcc_version }}"
+          
+          TOOLCHAIN_FILENAME="toolchain_${LIBC}_${TOOLCHAIN_ARCH}_gcc-${GCC_VERSION}.tar.zst"
+          
+          echo "📋 Toolchain Information:"
+          echo "  Architecture: $TOOLCHAIN_ARCH"
+          echo "  C Library: $LIBC"
+          echo "  GCC Version: $GCC_VERSION"
+          echo "  Filename: $TOOLCHAIN_FILENAME"
+          echo ""
+          
+          # 🔥 打包（与 build.sh 一致）
+          echo "📦 Creating archive..."
+          echo "   This may take several minutes..."
+          echo ""
+          
+          # 计算并行度
+          ZSTD_THREADS=$(nproc)
+          
+          if tar -I "zstd -19 -T$ZSTD_THREADS" -cf "toolchain-cache/$TOOLCHAIN_FILENAME" \
+            ./build_dir/toolchain-* \
+            ./staging_dir/toolchain-* \
+            ./staging_dir/host* \
+            ./dl \
+            ./tmp 2>&1 | grep -v "tar: Removing leading"; then
+            
+            echo ""
+            echo "✅ Archive created successfully"
+            
+            # 显示文件信息
+            ARCHIVE_SIZE=$(du -h "toolchain-cache/$TOOLCHAIN_FILENAME" | cut -f1)
+            echo ""
+            echo "📊 Archive Information:"
+            echo "  Filename: $TOOLCHAIN_FILENAME"
+            echo "  Size: $ARCHIVE_SIZE"
+            echo "  Compression: zstd level 19"
+            echo ""
+            
+            # 验证压缩包
+            echo "🔍 Verifying archive integrity..."
+            if zstd -t "toolchain-cache/$TOOLCHAIN_FILENAME" >/dev/null 2>&1; then
+              echo "✅ Archive integrity verified"
+            else
+              echo "❌ Archive integrity check failed"
+              exit 1
+            fi
+            
+            # 🔥 生成工具链信息文件
+            cat > toolchain-cache/toolchain-info.txt <<EOF
+          Toolchain Information
+          =====================
+          
+          Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Build Host: $(hostname)
+          Build User: github-actions[bot]
+          
+          Target Configuration:
+            Model: ${{ github.event.inputs.model }}
+            Architecture: $TOOLCHAIN_ARCH
+            C Library: $LIBC
+            GCC Version: $GCC_VERSION
+            Build Tools: ${{ github.event.inputs.tools }}
+          
+          OpenWrt Source:
+            Repository: $REPO_URL
+            Branch: $REPO_BRANCH
+            Commit: $(git rev-parse HEAD)
+          
+          Archive:
+            Filename: $TOOLCHAIN_FILENAME
+            Size: $ARCHIVE_SIZE
+            Compression: zstd -19
+          
+          Usage:
+            tar -I "zstd -d" -xf $TOOLCHAIN_FILENAME
+            cd openwrt
+            mkdir -p bin
+            find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1
+            find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1
+          EOF
+            
+            echo ""
+            echo "📄 Toolchain info saved to toolchain-info.txt"
+            
+          else
+            echo ""
+            echo "❌ Archive creation failed"
+            exit 1
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════════════"
+          
+          # 导出变量
+          echo "TOOLCHAIN_FILENAME=$TOOLCHAIN_FILENAME" >> $GITHUB_ENV
+          echo "ARCHIVE_SIZE=$ARCHIVE_SIZE" >> $GITHUB_ENV
+
+      # ============================================
+      # 9. 🔥 创建 Release
+      # ============================================
+      - name: 🚀 Create Release
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          name: 🔧 OpenWrt Toolchain - openwrt-24.10
+          allowUpdates: true
+          tag: openwrt-24.10
+          commit: ${{ github.sha }}
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: /builder/openwrt/toolchain-cache/*
+          body: |
+            ## 🔧 预编译工具链 - OpenWrt 24.10
+            
+            ### 📋 构建信息
+            | 项目 | 信息 |
+            |------|------|
+            | **构建时间** | `${{ github.event.repository.updated_at }}` |
+            | **目标平台** | `${{ github.event.inputs.model }}` |
+            | **架构** | `${{ env.TOOLCHAIN_ARCH }}` |
+            | **C 库** | `${{ github.event.inputs.libc }}` |
+            | **GCC 版本** | `${{ github.event.inputs.gcc_version }}` |
+            | **构建工具** | `${{ github.event.inputs.tools }}` |
+            | **构建环境** | Ubuntu 24.04 LTS |
+            | **文件大小** | `${{ env.ARCHIVE_SIZE }}` |
+            
+            ### 📦 工具链文件
+            - **文件名**: `${{ env.TOOLCHAIN_FILENAME }}`
+            - **压缩格式**: zstd (level 19)
+            - **用途**: 加速 OpenWrt 固件编译
+            
+            ### ✨ 特性
+            - ✅ **GCC ${{ github.event.inputs.gcc_version }}** 编译器
+            - ✅ **${{ github.event.inputs.libc }}** C 库
+            - ✅ **${{ env.TOOLCHAIN_ARCH }}** 架构
+            - ✅ 完整的 staging_dir 和 build_dir
+            - ✅ 预下载的源码包 (dl 目录)
+            
+            ### 🚀 使用方法
+            
+            #### 方法 1：在 GitHub Actions 中使用
+            ```yaml
+            - name: 📥 Download Prebuilt Toolchain
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                cd openwrt
+                
+                # 下载工具链
+                gh release download openwrt-24.10 \
+                  --repo ${{ github.repository }} \
+                  --pattern "${{ env.TOOLCHAIN_FILENAME }}" \
+                  --dir /tmp/toolchain
+                
+                # 解压
+                tar -I "zstd -d" -xf /tmp/toolchain/${{ env.TOOLCHAIN_FILENAME }}
+                
+                # 更新时间戳
+                mkdir -p bin
+                find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1
+                find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1
+                
+                # 清理
+                rm -rf /tmp/toolchain
