@@ -144,7 +144,7 @@ sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' 
 # ============================================
 # 工具链配置
 TOOLCHAIN_ARCH="x86_64"
-GCC_VERSION="15"
+GCC_VERSION="13"
 LIBC="musl"
 TOOLCHAIN_URL="https://github.com/${GITHUB_REPOSITORY:-zouchanggan/OpenWrt-Actions}/releases/download/openwrt-24.10"
 TOOLCHAIN_FILENAME="toolchain_${LIBC}_${TOOLCHAIN_ARCH}_gcc-${GCC_VERSION}.tar.zst"
