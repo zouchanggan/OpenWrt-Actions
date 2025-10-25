@@ -34,16 +34,16 @@ on:
         description: "🌐 Passwall"
         type: boolean
         default: true
-      nikki:
-        description: "📦 Nikki"
-        type: boolean
-        default: true
       openclash:
         description: "⚡ OpenClash"
         type: boolean
         default: true
       lucky:
         description: "🍀 Lucky"
+        type: boolean
+        default: true
+      oaf:
+        description: "🛡️ OpenAppFilter"
         type: boolean
         default: true
       force_clean:
@@ -602,6 +602,9 @@ jobs:
           # 复制配置文件
           cp "${{ github.workspace }}/$CONFIG_FILE" .config
           
+          # ✅ 第一次 defconfig（生成基础配置）
+          make defconfig
+    
           # 执行自定义脚本
           chmod +x -R "${{ github.workspace }}/scripts"
           if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
@@ -610,9 +613,9 @@ jobs:
           "${{ github.workspace }}/scripts/preset-mihimo-core.sh" "$CLASH_KERNEL"
           "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"
           
-          # 生成配置
-          echo "⚙️ Generating defconfig..."
-          make defconfig
+          # ✅ 使用 olddefconfig 代替（只更新新选项，不重置已有配置）
+          echo "⚙️ Updating configuration with olddefconfig..."
+          make olddefconfig
           
           # 提取目标信息
           DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config || echo "x86")
