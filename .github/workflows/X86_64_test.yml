@@ -46,10 +46,6 @@ on:
         description: "🍀 Lucky"
         type: boolean
         default: true
-      oaf:
-        description: "🛡️ OpenAppFilter"
-        type: boolean
-        default: true
       force_clean:
         description: "🧹 强制清理缓存"
         type: boolean
