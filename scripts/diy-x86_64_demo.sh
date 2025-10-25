@@ -2,6 +2,12 @@
 # =====================
 # 配置参数
 # =====================
+# 颜色定义
+RED_COLOR='\033[1;31m'
+GREEN_COLOR='\033[1;32m'
+YELLOW_COLOR='\033[1;33m'
+BLUE_COLOR='\033[1;34m'
+RES='\033[0m'
 # 脚本URL
 export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
@@ -9,7 +15,9 @@ export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 export github="github.com"
 
 # 下载进度条
-# CURL_BAR="--progress-bar"
+if curl --help | grep progress-bar >/dev/null 2>&1; then
+    CURL_BAR="--progress-bar"
+fi
 
 # 使用 O2 级别的优化
 sed -i 's/Os/O2/g' include/target.mk
@@ -100,6 +108,111 @@ fi
 
 # fix_rust_compile_error &&S et Rust build arg llvm.download-ci-llvm to false.
 sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
+
+# ============================================
+# 🔥 预编译工具链缓存（精简版）
+# ⚠️ 关键：必须在所有配置完成后、make defconfig 之前执行
+# ============================================
+# 工具链配置
+TOOLCHAIN_ARCH="x86_64"
+GCC_VERSION="15"
+LIBC="musl"
+TOOLCHAIN_URL="https://github.com/${GITHUB_REPOSITORY:-zouchanggan/OpenWrt-Actions}/releases/download/openwrt-24.10"
+TOOLCHAIN_FILENAME="toolchain_${LIBC}_${TOOLCHAIN_ARCH}_gcc-${GCC_VERSION}.tar.zst"
+echo -e ""
+echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
+echo -e "${BLUE_COLOR}                    TOOLCHAIN CACHE SYSTEM                      ${RES}"
+echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
+echo -e "  📦 Architecture: ${YELLOW_COLOR}${TOOLCHAIN_ARCH}${RES}"
+echo -e "  🔧 GCC Version: ${YELLOW_COLOR}${GCC_VERSION}${RES}"
+echo -e "  📚 C Library: ${YELLOW_COLOR}${LIBC}${RES}"
+echo -e "  📄 Filename: ${YELLOW_COLOR}${TOOLCHAIN_FILENAME}${RES}"
+echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
+echo -e ""
+# 检查是否启用快速构建
+if [ "$BUILD_FAST" = "y" ] || [ "$ENABLE_PREBUILT_TOOLCHAIN" = "y" ]; then
+    echo -e "${GREEN_COLOR}🚀 Prebuilt Toolchain Mode Enabled${RES}"
+    echo -e ""
+    
+    # 下载工具链（3次重试）
+    echo -e "${GREEN_COLOR}📥 Downloading Toolchain...${RES}"
+    DOWNLOAD_SUCCESS=false
+    for attempt in 1 2 3; do
+        echo -e "${YELLOW_COLOR}   Attempt $attempt/3...${RES}"
+        if curl -L -f "${TOOLCHAIN_URL}/${TOOLCHAIN_FILENAME}" \
+            -o toolchain.tar.zst \
+            --connect-timeout 30 \
+            --max-time 600 \
+            --retry 3 \
+            $CURL_BAR 2>&1; then
+            DOWNLOAD_SUCCESS=true
+            echo -e "${GREEN_COLOR}   ✅ Download completed${RES}"
+            break
+        else
+            echo -e "${RED_COLOR}   ❌ Attempt $attempt failed${RES}"
+            rm -f toolchain.tar.zst
+            [ $attempt -lt 3 ] && sleep 10
+        fi
+    done
+    
+    # 处理下载结果
+    if [ "$DOWNLOAD_SUCCESS" = false ]; then
+        echo -e "${RED_COLOR}❌ Failed to download toolchain, will build from source${RES}"
+    else
+        # 验证并解压
+        echo -e ""
+        echo -e "${GREEN_COLOR}🔍 Verifying archive...${RES}"
+        if [ -f "toolchain.tar.zst" ] && zstd -t toolchain.tar.zst >/dev/null 2>&1; then
+            echo -e "${GREEN_COLOR}   ✅ Archive verified ($(du -h toolchain.tar.zst | cut -f1))${RES}"
+            echo -e ""
+            echo -e "${GREEN_COLOR}📦 Extracting toolchain...${RES}"
+            
+            if tar -I "zstd -d" -xf toolchain.tar.zst 2>&1 | grep -v "Ignoring unknown" || true; then
+                rm -f toolchain.tar.zst
+                
+                # 更新时间戳
+                echo -e "${GREEN_COLOR}🔧 Processing files...${RES}"
+                mkdir -p bin
+                find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
+                find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
+                
+                # 验证工具链
+                TOOLCHAIN_DIR=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | head -1)
+                if [ -n "$TOOLCHAIN_DIR" ] && [ -d "$TOOLCHAIN_DIR" ]; then
+                    GCC_BIN=$(find "$TOOLCHAIN_DIR/bin" -name "*-gcc" -type f 2>/dev/null | head -1)
+                    if [ -n "$GCC_BIN" ] && [ -f "$GCC_BIN" ]; then
+                        chmod +x "$GCC_BIN" 2>/dev/null || true
+                        if GCC_VER=$("$GCC_BIN" --version 2>&1 | head -1); then
+                            echo -e "${GREEN_COLOR}   ✅ Compiler: ${GCC_VER}${RES}"
+                            echo -e ""
+                            echo -e "${GREEN_COLOR}╔════════════════════════════════════════════════════════════╗${RES}"
+                            echo -e "${GREEN_COLOR}║  ✅ Toolchain Ready - Build time reduced by ~25 minutes   ║${RES}"
+                            echo -e "${GREEN_COLOR}╚════════════════════════════════════════════════════════════╝${RES}"
+                            export TOOLCHAIN_READY=true
+                        fi
+                    fi
+                fi
+                
+                # 如果验证失败，提示将从源码构建
+                if [ "$TOOLCHAIN_READY" != "true" ]; then
+                    echo -e "${YELLOW_COLOR}⚠️  Toolchain verification failed, will build from source${RES}"
+                fi
+            else
+                echo -e "${RED_COLOR}   ❌ Extraction failed${RES}"
+                rm -f toolchain.tar.zst
+            fi
+        else
+            echo -e "${RED_COLOR}   ❌ Archive verification failed${RES}"
+            rm -f toolchain.tar.zst
+        fi
+    fi
+else
+    echo -e "${YELLOW_COLOR}ℹ️  Prebuilt Toolchain Disabled${RES}"
+    echo -e "${YELLOW_COLOR}   Set BUILD_FAST=y or ENABLE_PREBUILT_TOOLCHAIN=y to enable${RES}"
+fi
+echo -e ""
+echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
+echo -e ""
 
 # make olddefconfig
 curl -sL $mirror/doc/patch/kernel-6.6/kernel/0003-include-kernel-defaults.mk.patch | patch -p1
@@ -484,23 +597,10 @@ EOF
 # fix_rust_compile_error &&S et Rust build arg llvm.download-ci-llvm to false.
 sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
 
-# Vermagic
-# curl -s https://downloads.openwrt.org/releases/24.10.1/targets/x86/64/openwrt-24.10.1-x86-64.manifest \
-# | grep "^kernel -" \
-# | awk '{print $3}' \
-# | sed -n 's/.*~\([a-f0-9]\+\)-r[0-9]\+/\1/p' > vermagic
-# sed -i 's#grep '\''=\[ym\]'\'' \$(LINUX_DIR)/\.config\.set | LC_ALL=C sort | \$(MKHASH) md5 > \$(LINUX_DIR)/\.vermagic#cp \$(TOPDIR)/vermagic \$(LINUX_DIR)/.vermagic#g' include/kernel-defaults.mk
-
-# Toolchain Cache
-#if [ "$BUILD_FAST" = "y" ]; then
-#    TOOLCHAIN_URL=https://github.com/oppen321/openwrt_caches/releases/download/OpenWrt_Toolchain_Cache
-#    curl -L -k ${TOOLCHAIN_URL}/toolchain_gcc13_x86_64.tar.zst -o toolchain.tar.zst $CURL_BAR
-#    tar -I "zstd" -xf toolchain.tar.zst
-#    rm -f toolchain.tar.zst
-#    mkdir bin
-#    find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1
-#    find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1
-#fi
-
+# ============================================
+# 🔥 最后：清理临时文件（但保留工具链）
+# ============================================
+# ⚠️ 注意：不要删除 staging_dir 和 build_dir
 # init openwrt config
-rm -rf tmp/*
+# rm -rf tmp/*  ← 这行可能有问题，建议改为：
+[ "$TOOLCHAIN_READY" != "true" ] && rm -rf tmp/* || echo "Preserving toolchain tmp files"
