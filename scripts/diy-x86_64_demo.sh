@@ -594,9 +594,6 @@ src/gz openwrt_routing https://mirrors.tuna.tsinghua.edu.cn/openwrt/releases/24.
 src/gz openwrt_telephony https://mirrors.tuna.tsinghua.edu.cn/openwrt/releases/24.10.2/packages/x86_64/telephony
 EOF
 
-# fix_rust_compile_error &&S et Rust build arg llvm.download-ci-llvm to false.
-sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
-
 # ============================================
 # 🔥 最后：清理临时文件（但保留工具链）
 # ============================================
