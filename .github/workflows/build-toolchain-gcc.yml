@@ -350,7 +350,7 @@ jobs:
           echo "════════════════════════════════════════════════════════════════"
 
       # ============================================
-      # 8. 🔥 打包工具链（与 build.sh 对齐）
+      # 8. 🔥 打包工具链（修复版）
       # ============================================
       - name: 📦 Package Toolchain
         working-directory: /builder/openwrt
@@ -377,7 +377,58 @@ jobs:
           echo "  Filename: $TOOLCHAIN_FILENAME"
           echo ""
           
-          # 🔥 打包（与 build.sh 一致）
+          # 🔥 检查目录是否存在
+          echo "🔍 Checking directories..."
+          DIRS_TO_PACK=""
+          
+          if [ -d "build_dir/toolchain-"* ] 2>/dev/null; then
+            DIRS_TO_PACK="$DIRS_TO_PACK ./build_dir/toolchain-*"
+            echo "  ✅ build_dir/toolchain-* found"
+          else
+            echo "  ⚠️  build_dir/toolchain-* not found"
+          fi
+          
+          if [ -d "staging_dir/toolchain-"* ] 2>/dev/null; then
+            DIRS_TO_PACK="$DIRS_TO_PACK ./staging_dir/toolchain-*"
+            echo "  ✅ staging_dir/toolchain-* found"
+          else
+            echo "  ⚠️  staging_dir/toolchain-* not found"
+          fi
+          
+          if [ -d "staging_dir/host"* ] 2>/dev/null; then
+            DIRS_TO_PACK="$DIRS_TO_PACK ./staging_dir/host*"
+            echo "  ✅ staging_dir/host* found"
+          else
+            echo "  ⚠️  staging_dir/host* not found"
+          fi
+          
+          if [ -d "dl" ]; then
+            DIRS_TO_PACK="$DIRS_TO_PACK ./dl"
+            echo "  ✅ dl directory found"
+          else
+            echo "  ⚠️  dl directory not found"
+          fi
+          
+          if [ -d "tmp" ]; then
+            DIRS_TO_PACK="$DIRS_TO_PACK ./tmp"
+            echo "  ✅ tmp directory found"
+          else
+            echo "  ⚠️  tmp directory not found"
+          fi
+          
+          if [ -z "$DIRS_TO_PACK" ]; then
+            echo ""
+            echo "❌ No directories to pack!"
+            echo "📋 Available directories:"
+            ls -la
+            exit 1
+          fi
+          
+          echo ""
+          echo "📦 Directories to pack:$DIRS_TO_PACK"
+          echo ""
+          
+          # 🔥 打包（修复版 - 移除 grep 管道）
           echo "📦 Creating archive..."
           echo "   This may take several minutes..."
           echo ""
@@ -385,36 +436,38 @@ jobs:
           # 计算并行度
           ZSTD_THREADS=$(nproc)
           
-          if tar -I "zstd -19 -T$ZSTD_THREADS" -cf "toolchain-cache/$TOOLCHAIN_FILENAME" \
-            ./build_dir/toolchain-* \
-            ./staging_dir/toolchain-* \
-            ./staging_dir/host* \
-            ./dl \
-            ./tmp 2>&1 | grep -v "tar: Removing leading"; then
-            
+          # 🔥 关键修复：使用 2>&1 重定向，不使用 grep 管道
+          set +e  # 临时禁用错误退出
+          tar -I "zstd -19 -T$ZSTD_THREADS" -cf "toolchain-cache/$TOOLCHAIN_FILENAME" $DIRS_TO_PACK 2>&1 | tee /tmp/tar.log
+          TAR_EXIT_CODE=$?
+          set -e  # 重新启用错误退出
+          
+          # 检查 tar 退出码（忽略 "Removing leading" 警告）
+          if [ $TAR_EXIT_CODE -eq 0 ] || grep -q "Removing leading" /tmp/tar.log; then
             echo ""
             echo "✅ Archive created successfully"
             
             # 显示文件信息
-            ARCHIVE_SIZE=$(du -h "toolchain-cache/$TOOLCHAIN_FILENAME" | cut -f1)
-            echo ""
-            echo "📊 Archive Information:"
-            echo "  Filename: $TOOLCHAIN_FILENAME"
-            echo "  Size: $ARCHIVE_SIZE"
-            echo "  Compression: zstd level 19"
-            echo ""
-            
-            # 验证压缩包
-            echo "🔍 Verifying archive integrity..."
-            if zstd -t "toolchain-cache/$TOOLCHAIN_FILENAME" >/dev/null 2>&1; then
-              echo "✅ Archive integrity verified"
-            else
-              echo "❌ Archive integrity check failed"
-              exit 1
-            fi
-            
-            # 🔥 生成工具链信息文件
-            cat > toolchain-cache/toolchain-info.txt <<EOF
+            if [ -f "toolchain-cache/$TOOLCHAIN_FILENAME" ]; then
+              ARCHIVE_SIZE=$(du -h "toolchain-cache/$TOOLCHAIN_FILENAME" | cut -f1)
+              echo ""
+              echo "📊 Archive Information:"
+              echo "  Filename: $TOOLCHAIN_FILENAME"
+              echo "  Size: $ARCHIVE_SIZE"
+              echo "  Compression: zstd level 19"
+              echo ""
+              
+              # 验证压缩包
+              echo "🔍 Verifying archive integrity..."
+              if zstd -t "toolchain-cache/$TOOLCHAIN_FILENAME" >/dev/null 2>&1; then
+                echo "✅ Archive integrity verified"
+              else
+                echo "❌ Archive integrity check failed"
+                exit 1
+              fi
+              
+              # 🔥 生成工具链信息文件
+              cat > toolchain-cache/toolchain-info.txt <<EOF
           Toolchain Information
           =====================
           
@@ -446,22 +499,29 @@ jobs:
             find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1
             find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1
           EOF
-            
-            echo ""
-            echo "📄 Toolchain info saved to toolchain-info.txt"
-            
+              
+              echo ""
+              echo "📄 Toolchain info saved to toolchain-info.txt"
+              
+              # 导出变量
+              echo "TOOLCHAIN_FILENAME=$TOOLCHAIN_FILENAME" >> $GITHUB_ENV
+              echo "ARCHIVE_SIZE=$ARCHIVE_SIZE" >> $GITHUB_ENV
+            else
+              echo ""
+              echo "❌ Archive file not found after creation"
+              exit 1
+            fi
           else
             echo ""
-            echo "❌ Archive creation failed"
+            echo "❌ Archive creation failed (exit code: $TAR_EXIT_CODE)"
+            echo ""
+            echo "📋 tar log:"
+            cat /tmp/tar.log
             exit 1
           fi
           
           echo ""
           echo "════════════════════════════════════════════════════════════════"
-          
-          # 导出变量
-          echo "TOOLCHAIN_FILENAME=$TOOLCHAIN_FILENAME" >> $GITHUB_ENV
-          echo "ARCHIVE_SIZE=$ARCHIVE_SIZE" >> $GITHUB_ENV
 
       # ============================================
       # 9. 🔥 创建 Release
