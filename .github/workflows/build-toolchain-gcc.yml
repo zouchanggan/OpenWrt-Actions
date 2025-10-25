@@ -1,4 +1,4 @@
-name: 🔧 Build OpenWrt Toolchain (GCC 15)
+name: 🔧 Build OpenWrt Toolchain
 
 on:
   workflow_dispatch:
