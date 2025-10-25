@@ -102,8 +102,37 @@ fi
 
 # 选择OpenAppFilter开启eBPF 支持
 if [ "$ENABLE_OAF" = "y" ]; then
-  echo "Enabling eBPF support for OpenAppFilter..."
-  sed -i 's/# CONFIG_BPF_SYSCALL is not set/CONFIG_BPF_SYSCALL=y/' .config
+  echo ""
+  echo "════════════════════════════════════════════════════════════════"
+  echo "                    ENABLING eBPF SUPPORT                       "
+  echo "════════════════════════════════════════════════════════════════"
+  echo ""
+  
+  # 移除可能的冲突配置
+  sed -i '/CONFIG_BPF_SYSCALL/d' .config
+  sed -i '/CONFIG_BPF_JIT/d' .config
+  sed -i '/CONFIG_CGROUP_BPF/d' .config
+  
+  # 添加完整的 eBPF 配置
+  cat >> .config <<EOF
+# ============================================
+# eBPF Full Support (for OpenAppFilter)
+# ============================================
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+CONFIG_HAVE_EBPF_JIT=y
+CONFIG_CGROUP_BPF=y
+CONFIG_NET_CLS_BPF=m
+CONFIG_NET_ACT_BPF=m
+CONFIG_BPF_STREAM_PARSER=y
+CONFIG_BPF_EVENTS=y
+EOF
+  
+  echo "✅ eBPF support enabled"
+  echo ""
+  echo "════════════════════════════════════════════════════════════════"
+  echo ""
 fi
 
 # fix_rust_compile_error &&S et Rust build arg llvm.download-ci-llvm to false.
