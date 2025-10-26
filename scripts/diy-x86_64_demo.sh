@@ -2,6 +2,12 @@
 # =====================
 # 配置参数
 # =====================
+# 颜色定义
+RED_COLOR='\033[1;31m'
+GREEN_COLOR='\033[1;32m'
+YELLOW_COLOR='\033[1;33m'
+BLUE_COLOR='\033[1;34m'
+RES='\033[0m'
 # 脚本URL
 export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
