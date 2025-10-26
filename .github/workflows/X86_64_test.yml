@@ -572,10 +572,11 @@ jobs:
             echo "CONFIG_CCACHE=y"
             echo "FORCE_UNSAFE_CONFIGURE=1"
           } >> $GITHUB_ENV
-            # ============================================
-      # 10. 📝 配置加载（零修改方案）
+     
       # ============================================
-      - name: 📝 Load & Validate Configuration
+      # 10. 📝 配置加载与应用（简化版）
+      # ============================================
+      - name: 📝 Load Configuration & Apply Customization
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
@@ -593,128 +594,101 @@ jobs:
           cd "$OPENWRT_PATH"
           
           echo "════════════════════════════════════════════════════════════════"
-          echo "📝 Loading Configuration (Zero-Modification Mode)"
+          echo "📝 Configuration Loading & Customization"
           echo "════════════════════════════════════════════════════════════════"
           echo ""
           
-          # 1. 复制自定义文件
+          # 1. 复制基础配置
+          echo "📄 Loading base configuration..."
+          cp "${{ github.workspace }}/$CONFIG_FILE" .config
+          echo "✅ Base config loaded"
+          
+          # 2. 复制自定义文件
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
+            echo ""
             echo "📁 Copying custom files..."
             cp -r "$GITHUB_WORKSPACE/files" .
             echo "✅ Custom files copied"
           fi
           
-          # 2. 执行自定义脚本（包含工具链加载）
+          # 3. 🔥 加载预编译工具链（如果启用）
+          if [ "${{ github.event.inputs.enable_prebuilt_toolchain }}" = "true" ]; then
+            echo ""
+            echo "🔧 Loading prebuilt toolchain..."
+            chmod +x "${{ github.workspace }}/scripts/diy-toolchain.sh"
+            if "${{ github.workspace }}/scripts/diy-toolchain.sh"; then
+              echo "✅ Toolchain loader completed"
+              # 导出 TOOLCHAIN_READY 状态
+              if [ "$TOOLCHAIN_READY" = "true" ]; then
+                echo "TOOLCHAIN_READY=true" >> $GITHUB_ENV
+                echo "TOOLCHAIN_MODE=prebuilt" >> $GITHUB_ENV
+              fi
+            else
+              echo "⚠️  Toolchain loader finished (will build from source)"
+              echo "TOOLCHAIN_MODE=source" >> $GITHUB_ENV
+            fi
+          else
+            echo ""
+            echo "ℹ️  Prebuilt toolchain disabled"
+            echo "TOOLCHAIN_MODE=source" >> $GITHUB_ENV
+          fi
+          
+          # 4. 执行自定义脚本
           echo ""
-          echo "🔧 Running custom scripts..."
+          echo "🎨 Running customization scripts..."
           chmod +x -R "${{ github.workspace }}/scripts"
           
-          # 执行 DIY 脚本
           if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
-            echo "  Running $DIY_SCRIPT..."
-            if "${{ github.workspace }}/$DIY_SCRIPT"; then
-              echo "  ✅ $DIY_SCRIPT completed"
-            else
-              echo "  ❌ $DIY_SCRIPT failed"
-              exit 1
-            fi
+            echo "  ├─ $DIY_SCRIPT"
+            "${{ github.workspace }}/$DIY_SCRIPT" || exit 1
           fi
           
-          # 执行其他预设脚本
           for script in preset-mihomo-core.sh preset-adguard-core.sh; do
             if [ -f "${{ github.workspace }}/scripts/$script" ]; then
-              echo "  Running $script..."
-              if "${{ github.workspace }}/scripts/$script" "$CLASH_KERNEL"; then
-                echo "  ✅ $script completed"
-              else
-                echo "  ❌ $script failed"
-                exit 1
-              fi
+              echo "  ├─ $script"
+              "${{ github.workspace }}/scripts/$script" "$CLASH_KERNEL" || exit 1
             fi
           done
           
-          echo "✅ Custom scripts completed"
+          echo "  └─ ✅ All scripts completed"
           
-          # 3. 验证配置文件完整性（不做任何修改）
+          # 5. 🔥 生成最终配置（仅一次 defconfig）
           echo ""
-          echo "🔍 Validating configuration..."
-          
-          if [ ! -f ".config" ]; then
-            echo "❌ Error: .config not found"
+          echo "⚙️ Generating final configuration (defconfig)..."
+          if make defconfig V=s 2>&1 | tee /tmp/defconfig.log; then
+            echo "✅ Configuration generated successfully"
+          else
+            echo "❌ Configuration generation failed"
+            echo "📋 Last 30 lines of log:"
+            tail -30 /tmp/defconfig.log
             exit 1
           fi
           
-          if [ ! -s ".config" ]; then
-            echo "❌ Error: .config is empty"
-            exit 1
-          fi
-          
-          # 检查关键配置项
-          MISSING=0
-          for key in "CONFIG_TARGET_BOARD" "CONFIG_TARGET_SUBTARGET"; do
-            if ! grep -q "^${key}=" .config; then
-              echo "  ❌ Missing: $key"
-              MISSING=1
-            else
-              VALUE=$(grep "^${key}=" .config | cut -d'=' -f2 | tr -d '"')
-              echo "  ✅ $key=$VALUE"
-            fi
-          done
-          
-          if [ $MISSING -eq 1 ]; then
-            echo ""
-            echo "❌ Configuration validation failed!"
-            exit 1
-          fi
-          
-          # 生成配置
-          echo "⚙️ Generating defconfig..."
-          make defconfig
-          
-          # 4. 提取配置信息
+          # 6. 提取配置信息
           echo ""
-          echo "📋 Configuration Summary:"
+          echo "📋 Extracting build information..."
           DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config || echo "x86")
           DEVICE_SUBTARGET=$(awk -F'"' '/^CONFIG_TARGET_SUBTARGET=/{print $2}' .config || echo "64")
           PKG_COUNT=$(grep -c "^CONFIG_PACKAGE_.*=y" .config || echo 0)
-          GCC_VER=$(grep "^CONFIG_GCC_USE_VERSION.*=y" .config | sed 's/.*VERSION_//' | sed 's/=y//' || echo "default")
-          LIBC_TYPE=$(grep "^CONFIG_LIBC_USE.*=y" .config | sed 's/.*USE_//' | sed 's/=y//' || echo "musl")
           
-          echo "  ├─ Target: $DEVICE_TARGET"
-          echo "  ├─ Subtarget: $DEVICE_SUBTARGET"
-          echo "  ├─ Packages: $PKG_COUNT"
-          echo "  ├─ GCC: $GCC_VER"
-          echo "  ├─ LIBC: $LIBC_TYPE"
-          echo "  └─ LAN: $LAN"
-          
-          # 导出环境变量
           {
             echo "DEVICE_TARGET=$DEVICE_TARGET"
             echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
           } >> $GITHUB_ENV
           
-          # 5. eBPF 验证（如果启用）
-          if [ "$ENABLE_OAF" = "y" ]; then
-            echo ""
-            echo "════════════════════════════════════════════════════════════════"
-            echo "🔍 Verifying eBPF Configuration"
-            echo "════════════════════════════════════════════════════════════════"
-            
-            for cfg in "CONFIG_BPF_SYSCALL" "CONFIG_BPF_JIT" "CONFIG_CGROUP_BPF"; do
-              if grep -q "^${cfg}=y" .config; then
-                echo "  ✅ $cfg=y"
-              else
-                echo "  ⚠️  $cfg not found (may cause issues)"
-              fi
-            done
-            echo ""
-          fi
-          
+          # 7. 配置总结
           echo ""
           echo "════════════════════════════════════════════════════════════════"
-          echo "✅ Configuration Loaded Successfully"
-          echo "   No modifications applied - using complete .config as-is"
-          echo "   Build system will handle all dependencies automatically"
+          echo "✅ Configuration Summary"
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📱 Target: $DEVICE_TARGET / $DEVICE_SUBTARGET"
+          echo "🌐 LAN: $LAN"
+          echo "📦 Packages: $PKG_COUNT"
+          echo "🔧 Toolchain: ${{ env.TOOLCHAIN_MODE }}"
+          echo ""
+          echo "📦 Plugins:"
+          echo "  Docker: $ENABLE_DOCKER | SSRP: $ENABLE_SSRP | Passwall: $ENABLE_PASSWALL"
+          echo "  OpenClash: $ENABLE_OPENCLASH | Lucky: $ENABLE_LUCKY | OAF: $ENABLE_OAF"
           echo "════════════════════════════════════════════════════════════════"
       # ============================================
       # 11. 强制清理（保留关键缓存）
