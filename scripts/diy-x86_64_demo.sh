@@ -139,109 +139,114 @@ fi
 sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
 
 # ============================================
-# 🔥 预编译工具链缓存（精简版）
-# ⚠️ 关键：必须在所有配置完成后、make defconfig 之前执行
+# 🔥 预编译工具链智能加载（零修改配置）
 # ============================================
-# 工具链配置
 TOOLCHAIN_ARCH="x86_64"
-GCC_VERSION="13"
-LIBC="musl"
 TOOLCHAIN_URL="https://github.com/${GITHUB_REPOSITORY:-zouchanggan/OpenWrt-Actions}/releases/download/openwrt-24.10"
-TOOLCHAIN_FILENAME="toolchain_${LIBC}_${TOOLCHAIN_ARCH}_gcc-${GCC_VERSION}.tar.zst"
+
 echo -e ""
 echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
 echo -e "${BLUE_COLOR}                    TOOLCHAIN CACHE SYSTEM                      ${RES}"
 echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
 echo -e "  📦 Architecture: ${YELLOW_COLOR}${TOOLCHAIN_ARCH}${RES}"
-echo -e "  🔧 GCC Version: ${YELLOW_COLOR}${GCC_VERSION}${RES}"
-echo -e "  📚 C Library: ${YELLOW_COLOR}${LIBC}${RES}"
-echo -e "  📄 Filename: ${YELLOW_COLOR}${TOOLCHAIN_FILENAME}${RES}"
 echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
 echo -e ""
-# 检查是否启用快速构建
+
+# 检查是否启用预编译工具链
 if [ "$BUILD_FAST" = "y" ] || [ "$ENABLE_PREBUILT_TOOLCHAIN" = "y" ]; then
     echo -e "${GREEN_COLOR}🚀 Prebuilt Toolchain Mode Enabled${RES}"
     echo -e ""
     
-    # 下载工具链（3次重试）
-    echo -e "${GREEN_COLOR}📥 Downloading Toolchain...${RES}"
-    DOWNLOAD_SUCCESS=false
-    for attempt in 1 2 3; do
-        echo -e "${YELLOW_COLOR}   Attempt $attempt/3...${RES}"
+    # 🔥 从 .config 自动检测配置（如果文件已存在）
+    LIBC="musl"
+    GCC_VERSION="13"
+    
+    if [ -f ".config" ]; then
+        echo -e "${GREEN_COLOR}🔍 Detecting configuration from .config...${RES}"
+        grep -q "CONFIG_LIBC_USE_GLIBC=y" .config && LIBC="glibc"
+        grep -q "CONFIG_GCC_USE_VERSION_13=y" .config && GCC_VERSION="13"
+        grep -q "CONFIG_GCC_USE_VERSION_14=y" .config && GCC_VERSION="14"
+        echo -e "   Detected: ${YELLOW_COLOR}${LIBC} / GCC-${GCC_VERSION}${RES}"
+    else
+        echo -e "${YELLOW_COLOR}⚠️  .config not found, using defaults: ${LIBC} / GCC-${GCC_VERSION}${RES}"
+    fi
+    
+    # 智能回退版本列表
+    VERSIONS=("$GCC_VERSION")
+    [ "$GCC_VERSION" != "15" ] && VERSIONS+=("15")
+    [ "$GCC_VERSION" != "14" ] && VERSIONS+=("14")
+    [ "$GCC_VERSION" != "13" ] && VERSIONS+=("13")
+    
+    LOADED=false
+    
+    # 尝试下载工具链
+    for VER in "${VERSIONS[@]}"; do
+        TOOLCHAIN_FILENAME="toolchain_${LIBC}_${TOOLCHAIN_ARCH}_gcc-${VER}.tar.zst"
+        echo -e ""
+        echo -e "${GREEN_COLOR}📥 Trying GCC ${VER}...${RES}"
+        
         if curl -L -f "${TOOLCHAIN_URL}/${TOOLCHAIN_FILENAME}" \
             -o toolchain.tar.zst \
             --connect-timeout 30 \
             --max-time 600 \
             --retry 3 \
             $CURL_BAR 2>&1; then
-            DOWNLOAD_SUCCESS=true
-            echo -e "${GREEN_COLOR}   ✅ Download completed${RES}"
-            break
-        else
-            echo -e "${RED_COLOR}   ❌ Attempt $attempt failed${RES}"
-            rm -f toolchain.tar.zst
-            [ $attempt -lt 3 ] && sleep 10
-        fi
-    done
-    
-    # 处理下载结果
-    if [ "$DOWNLOAD_SUCCESS" = false ]; then
-        echo -e "${RED_COLOR}❌ Failed to download toolchain, will build from source${RES}"
-    else
-        # 验证并解压
-        echo -e ""
-        echo -e "${GREEN_COLOR}🔍 Verifying archive...${RES}"
-        if [ -f "toolchain.tar.zst" ] && zstd -t toolchain.tar.zst >/dev/null 2>&1; then
-            echo -e "${GREEN_COLOR}   ✅ Archive verified ($(du -h toolchain.tar.zst | cut -f1))${RES}"
-            echo -e ""
-            echo -e "${GREEN_COLOR}📦 Extracting toolchain...${RES}"
             
-            if tar -I "zstd -d" -xf toolchain.tar.zst 2>&1 | grep -v "Ignoring unknown" || true; then
-                rm -f toolchain.tar.zst
+            echo -e "${GREEN_COLOR}📊 Archive size: $(du -h toolchain.tar.zst | cut -f1)${RES}"
+            
+            # 验证压缩包
+            if zstd -t toolchain.tar.zst >/dev/null 2>&1; then
+                echo -e "${GREEN_COLOR}🔍 Archive verified${RES}"
                 
-                # 更新时间戳
-                echo -e "${GREEN_COLOR}🔧 Processing files...${RES}"
-                mkdir -p bin
-                find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
-                find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
-                
-                # 验证工具链
-                TOOLCHAIN_DIR=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | head -1)
-                if [ -n "$TOOLCHAIN_DIR" ] && [ -d "$TOOLCHAIN_DIR" ]; then
-                    GCC_BIN=$(find "$TOOLCHAIN_DIR/bin" -name "*-gcc" -type f 2>/dev/null | head -1)
-                    if [ -n "$GCC_BIN" ] && [ -f "$GCC_BIN" ]; then
-                        chmod +x "$GCC_BIN" 2>/dev/null || true
-                        if GCC_VER=$("$GCC_BIN" --version 2>&1 | head -1); then
-                            echo -e "${GREEN_COLOR}   ✅ Compiler: ${GCC_VER}${RES}"
-                            echo -e ""
-                            echo -e "${GREEN_COLOR}╔════════════════════════════════════════════════════════════╗${RES}"
-                            echo -e "${GREEN_COLOR}║  ✅ Toolchain Ready - Build time reduced by ~25 minutes   ║${RES}"
-                            echo -e "${GREEN_COLOR}╚════════════════════════════════════════════════════════════╝${RES}"
-                            export TOOLCHAIN_READY=true
+                # 解压
+                echo -e "${GREEN_COLOR}📦 Extracting toolchain...${RES}"
+                if tar -I "zstd -d -T0" -xf toolchain.tar.zst 2>&1 | grep -v "Ignoring unknown" || true; then
+                    rm -f toolchain.tar.zst
+                    
+                    # 更新时间戳
+                    echo -e "${GREEN_COLOR}🔧 Processing files...${RES}"
+                    mkdir -p bin
+                    find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
+                    find ./tmp/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
+                    
+                    # 验证工具链
+                    TOOLCHAIN_DIR=$(find staging_dir -maxdepth 1 -type d -name "toolchain-*" 2>/dev/null | head -1)
+                    if [ -n "$TOOLCHAIN_DIR" ] && [ -d "$TOOLCHAIN_DIR" ]; then
+                        GCC_BIN=$(find "$TOOLCHAIN_DIR/bin" -name "*-gcc" -type f 2>/dev/null | head -1)
+                        if [ -n "$GCC_BIN" ] && [ -f "$GCC_BIN" ]; then
+                            chmod +x "$GCC_BIN" 2>/dev/null || true
+                            if GCC_VER=$("$GCC_BIN" --version 2>&1 | head -1); then
+                                echo -e "${GREEN_COLOR}   ✅ Compiler: ${GCC_VER}${RES}"
+                                echo -e ""
+                                echo -e "${GREEN_COLOR}╔════════════════════════════════════════════════════════════╗${RES}"
+                                echo -e "${GREEN_COLOR}║  ✅ Toolchain Ready - Build time reduced by ~25 minutes   ║${RES}"
+                                echo -e "${GREEN_COLOR}╚════════════════════════════════════════════════════════════╝${RES}"
+                                export TOOLCHAIN_READY=true
+                                LOADED=true
+                                break
+                            fi
                         fi
                     fi
                 fi
-                
-                # 如果验证失败，提示将从源码构建
-                if [ "$TOOLCHAIN_READY" != "true" ]; then
-                    echo -e "${YELLOW_COLOR}⚠️  Toolchain verification failed, will build from source${RES}"
-                fi
-            else
-                echo -e "${RED_COLOR}   ❌ Extraction failed${RES}"
-                rm -f toolchain.tar.zst
             fi
-        else
-            echo -e "${RED_COLOR}   ❌ Archive verification failed${RES}"
+            
+            # 清理失败的文件
             rm -f toolchain.tar.zst
         fi
+    done
+    
+    if [ "$LOADED" = false ]; then
+        echo -e ""
+        echo -e "${YELLOW_COLOR}⚠️  No prebuilt toolchain available, will build from source${RES}"
     fi
 else
     echo -e "${YELLOW_COLOR}ℹ️  Prebuilt Toolchain Disabled${RES}"
-    echo -e "${YELLOW_COLOR}   Set BUILD_FAST=y or ENABLE_PREBUILT_TOOLCHAIN=y to enable${RES}"
 fi
+
 echo -e ""
 echo -e "${BLUE_COLOR}════════════════════════════════════════════════════════════════${RES}"
 echo -e ""
+
 
 # make olddefconfig
 curl -sL $mirror/doc/patch/kernel-6.6/kernel/0003-include-kernel-defaults.mk.patch | patch -p1
