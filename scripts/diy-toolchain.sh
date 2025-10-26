@@ -41,7 +41,7 @@ echo -e ""
 
 # 🔥 从 .config 自动检测配置
 LIBC="musl"
-GCC_VERSION="15"
+GCC_VERSION="13"
 
 if [ -f ".config" ]; then
     echo -e "${GREEN_COLOR}🔍 Auto-detecting configuration from .config...${RES}"
