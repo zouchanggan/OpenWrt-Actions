@@ -572,17 +572,16 @@ jobs:
             echo "CONFIG_CCACHE=y"
             echo "FORCE_UNSAFE_CONFIGURE=1"
           } >> $GITHUB_ENV
+            # ============================================
+      # 10. 📝 配置加载（零修改方案）
       # ============================================
-      # 10. 自定义配置及插件开关（修复版）
-      # ============================================
-      - name: 🎨 Apply Custom Configuration
+      - name: 📝 Load & Validate Configuration
         env:
           LAN: ${{ github.event.inputs.lan_addr }}
           ROOT_PASSWORD: ${{ github.event.inputs.root_password }}
           ENABLE_DOCKER: ${{ github.event.inputs.docker == 'true' && 'y' || 'n' }}
           ENABLE_SSRP: ${{ github.event.inputs.ssrp == 'true' && 'y' || 'n' }}
           ENABLE_PASSWALL: ${{ github.event.inputs.passwall == 'true' && 'y' || 'n' }}
-          ENABLE_NIKKI: ${{ github.event.inputs.nikki == 'true' && 'y' || 'n' }}
           ENABLE_OPENCLASH: ${{ github.event.inputs.openclash == 'true' && 'y' || 'n' }}
           ENABLE_LUCKY: ${{ github.event.inputs.lucky == 'true' && 'y' || 'n' }}
           ENABLE_OAF: ${{ github.event.inputs.oaf == 'true' && 'y' || 'n' }}
@@ -594,48 +593,23 @@ jobs:
           cd "$OPENWRT_PATH"
           
           echo "════════════════════════════════════════════════════════════════"
-          echo "🎨 Applying Custom Configuration"
+          echo "📝 Loading Configuration (Zero-Modification Mode)"
           echo "════════════════════════════════════════════════════════════════"
           echo ""
           
-          # 复制自定义文件
+          # 1. 复制自定义文件
           if [ -d "$GITHUB_WORKSPACE/files" ]; then
             echo "📁 Copying custom files..."
-            mv $GITHUB_WORKSPACE/files $OPENWRT_PATH/files
+            cp -r "$GITHUB_WORKSPACE/files" .
             echo "✅ Custom files copied"
           fi
           
-          # 🔥 关键修复：如果使用了预编译工具链，先清理旧配置
-          if [ "${{ env.TOOLCHAIN_READY }}" = "true" ]; then
-            echo ""
-            echo "🔧 Prebuilt toolchain detected, cleaning old config..."
-            rm -f .config .config.old
-            echo "✅ Old config cleaned"
-          fi
-          
-          # 复制配置文件
-          echo ""
-          echo "📄 Copying base configuration..."
-          cp "${{ github.workspace }}/$CONFIG_FILE" .config
-          echo "✅ Base config copied"
-          
-          # 🔥 第一次 defconfig（生成基础配置）
-          echo ""
-          echo "⚙️ Generating base configuration (defconfig)..."
-          if make defconfig V=s 2>&1 | tee /tmp/defconfig.log; then
-            echo "✅ Base configuration generated"
-          else
-            echo "❌ defconfig failed"
-            echo "📋 Last 20 lines of log:"
-            tail -20 /tmp/defconfig.log
-            exit 1
-          fi
-          
-          # 执行自定义脚本
+          # 2. 执行自定义脚本（包含工具链加载）
           echo ""
           echo "🔧 Running custom scripts..."
           chmod +x -R "${{ github.workspace }}/scripts"
           
+          # 执行 DIY 脚本
           if [ -f "${{ github.workspace }}/$DIY_SCRIPT" ]; then
             echo "  Running $DIY_SCRIPT..."
             if "${{ github.workspace }}/$DIY_SCRIPT"; then
@@ -646,150 +620,102 @@ jobs:
             fi
           fi
           
-          if [ -f "${{ github.workspace }}/scripts/preset-mihomo-core.sh" ]; then
-            echo "  Running preset-mihomo-core.sh..."
-            if "${{ github.workspace }}/scripts/preset-mihomo-core.sh" "$CLASH_KERNEL"; then
-              echo "  ✅ preset-mihomo-core.sh completed"
-            else
-              echo "  ❌ preset-mihomo-core.sh failed"
-              exit 1
+          # 执行其他预设脚本
+          for script in preset-mihomo-core.sh preset-adguard-core.sh; do
+            if [ -f "${{ github.workspace }}/scripts/$script" ]; then
+              echo "  Running $script..."
+              if "${{ github.workspace }}/scripts/$script" "$CLASH_KERNEL"; then
+                echo "  ✅ $script completed"
+              else
+                echo "  ❌ $script failed"
+                exit 1
+              fi
             fi
-          fi
-          
-          if [ -f "${{ github.workspace }}/scripts/preset-adguard-core.sh" ]; then
-            echo "  Running preset-adguard-core.sh..."
-            if "${{ github.workspace }}/scripts/preset-adguard-core.sh" "$CLASH_KERNEL"; then
-              echo "  ✅ preset-adguard-core.sh completed"
-            else
-              echo "  ❌ preset-adguard-core.sh failed"
-              exit 1
-            fi
-          fi
+          done
           
           echo "✅ Custom scripts completed"
           
-          # 🔥 关键修复：使用 olddefconfig 前先检查配置
+          # 3. 验证配置文件完整性（不做任何修改）
           echo ""
-          echo "🔍 Checking configuration validity..."
+          echo "🔍 Validating configuration..."
           
-          # 检查是否有明显的配置错误
-          if grep -q "CONFIG_TARGET_BOARD=" .config; then
-            echo "✅ Target board configured"
-          else
-            echo "❌ No target board found in config"
+          if [ ! -f ".config" ]; then
+            echo "❌ Error: .config not found"
             exit 1
           fi
           
-          # 🔥 使用 olddefconfig（只更新新选项，不重置已有配置）
+          if [ ! -s ".config" ]; then
+            echo "❌ Error: .config is empty"
+            exit 1
+          fi
+          
+          # 检查关键配置项
+          MISSING=0
+          for key in "CONFIG_TARGET_BOARD" "CONFIG_TARGET_SUBTARGET"; do
+            if ! grep -q "^${key}=" .config; then
+              echo "  ❌ Missing: $key"
+              MISSING=1
+            else
+              VALUE=$(grep "^${key}=" .config | cut -d'=' -f2 | tr -d '"')
+              echo "  ✅ $key=$VALUE"
+            fi
+          done
+          
+          if [ $MISSING -eq 1 ]; then
+            echo ""
+            echo "❌ Configuration validation failed!"
+            exit 1
+          fi
+          
           # 生成配置
           echo "⚙️ Generating defconfig..."
           make defconfig
           
-          # 🔥 关键修复：先运行 prereq 检查
-          echo "  Running prerequisite checks..."
-          if make prereq V=s 2>&1 | tee /tmp/prereq.log; then
-            echo "  ✅ Prerequisites satisfied"
-          else
-            echo "  ⚠️  Some prerequisites failed, but continuing..."
-            echo "  📋 Last 10 lines of prereq log:"
-            tail -10 /tmp/prereq.log
-          fi
-          
-          # 🔥 运行 olddefconfig
+          # 4. 提取配置信息
           echo ""
-          echo "  Running olddefconfig..."
-          if make olddefconfig V=s 2>&1 | tee /tmp/olddefconfig.log; then
-            echo "  ✅ Configuration updated successfully"
-          else
-            echo "  ❌ olddefconfig failed"
-            echo ""
-            echo "  📋 Full olddefconfig log:"
-            cat /tmp/olddefconfig.log
-            echo ""
-            echo "  📋 Current .config (first 50 lines):"
-            head -50 .config
-            echo ""
-            echo "  💡 Trying alternative: defconfig..."
-            if make defconfig V=s; then
-              echo "  ✅ defconfig succeeded as fallback"
-            else
-              echo "  ❌ Both olddefconfig and defconfig failed"
-              exit 1
-            fi
-          fi
-          
-          # 🔥 验证 eBPF 配置（如果启用）
-          if [ "$ENABLE_OAF" = "y" ]; then
-            echo ""
-            echo "════════════════════════════════════════════════════════════════"
-            echo "              🔍 VERIFYING eBPF CONFIGURATION                   "
-            echo "════════════════════════════════════════════════════════════════"
-            echo ""
-            
-            EBPF_OK=true
-            
-            # 检查核心配置
-            if grep -q "CONFIG_BPF_SYSCALL=y" .config; then
-              echo "✅ CONFIG_BPF_SYSCALL=y"
-            else
-              echo "⚠️  CONFIG_BPF_SYSCALL not found or disabled"
-              EBPF_OK=false
-            fi
-            
-            if grep -q "CONFIG_BPF_JIT=y" .config; then
-              echo "✅ CONFIG_BPF_JIT=y"
-            else
-              echo "⚠️  CONFIG_BPF_JIT not found (may be optional)"
-            fi
-            
-            if grep -q "CONFIG_CGROUP_BPF=y" .config; then
-              echo "✅ CONFIG_CGROUP_BPF=y"
-            else
-              echo "⚠️  CONFIG_CGROUP_BPF not found (may be optional)"
-            fi
-            
-            echo ""
-            if [ "$EBPF_OK" = true ]; then
-              echo "✅ eBPF configuration verified successfully"
-            else
-              echo "⚠️  eBPF configuration incomplete, but build will continue"
-            fi
-            echo ""
-            echo "════════════════════════════════════════════════════════════════"
-            echo ""
-          fi
-          
-          # 提取目标信息
-          echo ""
-          echo "📋 Extracting target information..."
+          echo "📋 Configuration Summary:"
           DEVICE_TARGET=$(awk -F'"' '/^CONFIG_TARGET_BOARD=/{print $2}' .config || echo "x86")
           DEVICE_SUBTARGET=$(awk -F'"' '/^CONFIG_TARGET_SUBTARGET=/{print $2}' .config || echo "64")
-          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/openwrt/openwrt/releases/latest" | \
-            grep -m1 '"tag_name"' | cut -d'"' -f4 | sed 's/^v//' || echo "unknown")
-            
+          PKG_COUNT=$(grep -c "^CONFIG_PACKAGE_.*=y" .config || echo 0)
+          GCC_VER=$(grep "^CONFIG_GCC_USE_VERSION.*=y" .config | sed 's/.*VERSION_//' | sed 's/=y//' || echo "default")
+          LIBC_TYPE=$(grep "^CONFIG_LIBC_USE.*=y" .config | sed 's/.*USE_//' | sed 's/=y//' || echo "musl")
+          
+          echo "  ├─ Target: $DEVICE_TARGET"
+          echo "  ├─ Subtarget: $DEVICE_SUBTARGET"
+          echo "  ├─ Packages: $PKG_COUNT"
+          echo "  ├─ GCC: $GCC_VER"
+          echo "  ├─ LIBC: $LIBC_TYPE"
+          echo "  └─ LAN: $LAN"
+          
+          # 导出环境变量
           {
             echo "DEVICE_TARGET=$DEVICE_TARGET"
             echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
-            echo "LATEST_RELEASE=$LATEST_RELEASE"
           } >> $GITHUB_ENV
+          
+          # 5. eBPF 验证（如果启用）
+          if [ "$ENABLE_OAF" = "y" ]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════════════"
+            echo "🔍 Verifying eBPF Configuration"
+            echo "════════════════════════════════════════════════════════════════"
+            
+            for cfg in "CONFIG_BPF_SYSCALL" "CONFIG_BPF_JIT" "CONFIG_CGROUP_BPF"; do
+              if grep -q "^${cfg}=y" .config; then
+                echo "  ✅ $cfg=y"
+              else
+                echo "  ⚠️  $cfg not found (may cause issues)"
+              fi
+            done
+            echo ""
+          fi
           
           echo ""
           echo "════════════════════════════════════════════════════════════════"
-          echo "              ✅ CONFIGURATION SUMMARY                          "
+          echo "✅ Configuration Loaded Successfully"
+          echo "   No modifications applied - using complete .config as-is"
+          echo "   Build system will handle all dependencies automatically"
           echo "════════════════════════════════════════════════════════════════"
-          echo ""
-          echo "📱 Target: $DEVICE_TARGET-$DEVICE_SUBTARGET"
-          echo "📌 Latest Release: $LATEST_RELEASE"
-          echo "🌐 LAN Address: $LAN"
-          echo ""
-          echo "📦 Plugin Status:"
-          echo "  Docker: $ENABLE_DOCKER | SSRP: $ENABLE_SSRP | Passwall: $ENABLE_PASSWALL"
-          echo "  OpenClash: $ENABLE_OPENCLASH | Nikki: $ENABLE_NIKKI | Lucky: $ENABLE_LUCKY | OAF: $ENABLE_OAF"
-          echo ""
-          echo "🔧 Toolchain: ${{ env.TOOLCHAIN_MODE }}"
-          echo ""
-          echo "════════════════════════════════════════════════════════════════"
-      
       # ============================================
       # 11. 强制清理（保留关键缓存）
       # ============================================
