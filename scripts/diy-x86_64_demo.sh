@@ -8,6 +8,19 @@ GREEN_COLOR='\033[1;32m'
 YELLOW_COLOR='\033[1;33m'
 BLUE_COLOR='\033[1;34m'
 RES='\033[0m'
+# 定义 group 函数
+GROUP=
+group() {
+    endgroup
+    echo "::group::  $1"
+    GROUP=1
+}
+endgroup() {
+    if [ -n "$GROUP" ]; then
+        echo "::endgroup::"
+    fi
+    GROUP=
+}
 # 脚本URL
 export mirror=https://raw.githubusercontent.com/zouchanggan/OpenWrt-Actions/main
 
@@ -259,6 +272,10 @@ git clone https://$github/grandway2025/package_new_natflow package/new/natflow
 
 # sfe
 git clone https://$github/grandway2025/shortcut-fe package/new/shortcut-fe
+
+# gcc15 patches
+[ "$(whoami)" = "runner" ] && group "patching toolchain"
+curl -s $mirror/openwrt/patch/generic-24.10/202-toolchain-gcc-add-support-for-GCC-15.patch | patch -p1
 
 # Patch Luci add nft_fullcone/bcm_fullcone & shortcut-fe & natflow & ipv6-nat & custom nft command option
 pushd feeds/luci
