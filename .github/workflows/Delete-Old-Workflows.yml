@@ -14,7 +14,7 @@ jobs:
       uses: Mattraks/delete-workflow-runs@main
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        retain_days: 10
+        retain_days: 30
         keep_minimum_runs: 0
 
     - name: Delete Old Releases
