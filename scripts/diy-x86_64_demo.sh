@@ -275,7 +275,7 @@ git clone https://$github/grandway2025/shortcut-fe package/new/shortcut-fe
 
 # gcc15 patches
 [ "$(whoami)" = "runner" ] && group "patching toolchain"
-curl -s $mirror/openwrt/patch/generic-24.10/202-toolchain-gcc-add-support-for-GCC-15.patch | patch -p1
+curl -s $mirror/doc/patch/gcc/202-toolchain-gcc-add-support-for-GCC-15.patch | patch -p1
 
 # Patch Luci add nft_fullcone/bcm_fullcone & shortcut-fe & natflow & ipv6-nat & custom nft command option
 pushd feeds/luci
